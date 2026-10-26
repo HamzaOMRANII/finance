@@ -1,0 +1,31 @@
+{
+  "name": "omrani-finance",
+  "version": "0.1.0",
+  "private": true,
+  "description": "finance.omranisystems.com: FinTrack, bills, cards, client invoicing and month-end automations.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "start": "node src/server.js",
+    "migrate": "node src/server/cli/migrate.js",
+    "seed": "node src/server/cli/seed.js",
+    "set-password": "node src/server/cli/set-password.js",
+    "bills-report": "node automation/bills-report.js",
+    "invoice-generator": "node automation/invoice-generator.js",
+    "payment-reminders": "node automation/payment-reminders.js",
+    "test": "node --test test/*.test.js"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "dependencies": {
+    "nodemailer": "^6.9.14",
+    "pdfkit": "^0.17.2"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^6.1.2",
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3",
+    "vite": "^8.3.4"
+  }
+}

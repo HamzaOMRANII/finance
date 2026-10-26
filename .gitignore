@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+# All financial data, receipts, issued invoices and seed values stay on the server only.
+data/
+automation/logs/*
+!automation/logs/.gitkeep
+*.db
+*.db-*
