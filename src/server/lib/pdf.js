@@ -132,15 +132,8 @@ function renderInvoicePdf(v) {
 
   const title = isCredit ? t.credit_note : t.invoice;
   doc.font('soraBold').fontSize(24).fillColor('#FFFFFF').text(title, PAGE.m, 34, { width: W, align: 'right' });
-  doc.font('monoMed').fontSize(11).fillColor(v.draft ? C.gold : C.petrolBright)
+  doc.font('monoMed').fontSize(11).fillColor(C.petrolBright)
     .text(v.number || t.draft, PAGE.m, 66, { width: W, align: 'right' });
-
-  if (v.draft) {
-    doc.save().rotate(-30, { origin: [PAGE.w / 2, PAGE.h / 2] });
-    doc.font('soraBold').fontSize(80).fillColor(C.gold).fillOpacity(0.08)
-      .text(t.draft, -100, PAGE.h / 2 - 50, { width: PAGE.w + 200, align: 'center', lineBreak: false });
-    doc.restore().fillOpacity(1);
-  }
 
   // ---------- key facts row
   y = 138;

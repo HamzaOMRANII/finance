@@ -403,7 +403,6 @@ function writeIssuedPdf(rel, buffer) {
 // Gives an approved/draft invoice its number, issue date, due date and snapshots, renders and
 // stores the PDF. Idempotent: an invoice that already has a number is returned unchanged.
 async function finalize(id, { today = D.today(), actor = 'user' } = {}) {
-  const { renderInvoicePdf } = require('./pdf');
   let inv = mustGet('outgoing_invoices', id);
   if (inv.invoice_number) return inv;
   if (!EDITABLE.includes(inv.status)) throw new HttpError(409, `cannot finalize an invoice that is ${inv.status}`);
@@ -430,24 +429,46 @@ async function finalize(id, { today = D.today(), actor = 'user' } = {}) {
     logEvent(id, 'numbered', { invoice_number: number }, actor);
     return { rel: fields.pdf_path, view: invoiceView({ ...inv, ...fields }) };
   });
-  try {
-    writeIssuedPdf(rel, await renderInvoicePdf(view));
-  } catch (err) {
-    if (err.code !== 'EEXIST') throw err;
-  }
+  await writeDocuments(rel, view);
   inv = mustGet('outgoing_invoices', id);
   return inv;
 }
 
-// Re-creates a missing PDF for a numbered invoice from its frozen snapshot (never overwrites).
+const docxPathOf = (pdfRel) => pdfRel.replace(/\.pdf$/, '.docx');
+
+// Renders an issued invoice (PDF, plus .docx for template invoices) and stores whatever is
+// missing. Existing files are never overwritten.
+async function writeDocuments(pdfRel, view) {
+  const { renderInvoice } = require('./render');
+  const { pdf, docx } = await renderInvoice(view);
+  for (const [rel, buf] of [[pdfRel, pdf], [docxPathOf(pdfRel), docx]]) {
+    if (!buf) continue;
+    try {
+      writeIssuedPdf(rel, buf);
+    } catch (err) {
+      if (err.code !== 'EEXIST') throw err;
+    }
+  }
+}
+
+// Re-creates missing files of a numbered invoice from its frozen snapshot (never overwrites).
 async function ensurePdf(inv) {
   if (!inv.pdf_path) return null;
   const full = path.join(config.issuedDir, inv.pdf_path);
-  if (!fs.existsSync(full)) {
-    const { renderInvoicePdf } = require('./pdf');
-    writeIssuedPdf(inv.pdf_path, await renderInvoicePdf(invoiceView(inv)));
-  }
+  if (inv.is_legacy) return full;
+  const { usesTemplate } = require('./render');
+  const view = invoiceView(inv);
+  const docxMissing = usesTemplate(view) && !fs.existsSync(path.join(config.issuedDir, docxPathOf(inv.pdf_path)));
+  if (!fs.existsSync(full) || docxMissing) await writeDocuments(inv.pdf_path, view);
   return full;
+}
+
+// Path of the stored .docx of a numbered invoice, or null when it has none (legacy, English).
+async function ensureDocx(inv) {
+  if (!inv.pdf_path || inv.is_legacy) return null;
+  await ensurePdf(inv);
+  const full = path.join(config.issuedDir, docxPathOf(inv.pdf_path));
+  return fs.existsSync(full) ? full : null;
 }
 
 // Everything the PDF template and the emails need, from snapshots when frozen.
@@ -458,7 +479,8 @@ function invoiceView(inv) {
   const terms = clientRow.payment_terms_days;
   return {
     kind: 'invoice',
-    number: inv.invoice_number,
+    // drafts show the next free number (assigned for real at send time; no watermark)
+    number: inv.invoice_number || peekNumber(inv.issuer_profile_id, Number((inv.issue_date || D.today()).slice(0, 4))),
     draft: !inv.invoice_number,
     language: inv.language,
     currency: inv.currency,
@@ -657,7 +679,7 @@ module.exports = {
   cleanLineItems, cleanTaxLines, computeTotals,
   saveIssuer, saveClient, saveSchedule,
   sendDateInMonth, firstSendDate, followingSendDate, periodFor, fillPlaceholders, draftFromSchedule,
-  createInvoice, updateInvoice, deleteDraft, previewView, approve, finalize, ensurePdf, invoiceView, peekNumber,
+  createInvoice, updateInvoice, deleteDraft, previewView, approve, finalize, ensurePdf, ensureDocx, docxPathOf, invoiceView, peekNumber,
   send, markSent, recordPayment, voidInvoice, createCreditNote, creditNoteView, creditedTotal,
   markOverdue, logEvent, writeIssuedPdf,
 };

@@ -12,6 +12,7 @@ const receipts = require('./lib/receipts');
 const dashboard = require('./lib/dashboard');
 const files = require('./lib/files');
 const { renderInvoicePdf } = require('./lib/pdf');
+const { renderInvoice, usesTemplate } = require('./lib/render');
 const D = require('../shared/dates.mjs');
 
 const r = new Router();
@@ -28,13 +29,15 @@ const parseJsonCols = (row, cols) => {
   return out;
 };
 const INVOICE_JSON = ['line_items', 'tax_lines', 'issuer_snapshot', 'client_snapshot', 'sent_to'];
-const sendPdf = (res, buffer, name) => {
+const DOCX_TYPE = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+const sendBuffer = (res, buffer, name, type, download) => {
   res.writeHead(200, {
-    'Content-Type': 'application/pdf', 'Content-Length': buffer.length, 'Cache-Control': 'private, no-store',
-    'X-Content-Type-Options': 'nosniff', 'Content-Disposition': `inline; filename="${name}"`,
+    'Content-Type': type, 'Content-Length': buffer.length, 'Cache-Control': 'private, no-store',
+    'X-Content-Type-Options': 'nosniff', 'Content-Disposition': `${download ? 'attachment' : 'inline'}; filename="${name}"`,
   });
   res.end(buffer);
 };
+const sendPdf = (res, buffer, name, download = false) => sendBuffer(res, buffer, name, 'application/pdf', download);
 
 // ------------------------------------------------------------------ session
 r.post('/api/login', ({ req, res, body }) => auth.login(req, res, body), pub);
@@ -187,7 +190,7 @@ r.del('/api/schedules/:id', ({ params }) => {
 r.get('/api/schedules/:id/preview.pdf', async ({ res, params }) => {
   const s = bills.mustGet('recurring_invoice_schedules', id(params));
   const { invoice } = inv.draftFromSchedule(s, s.next_run_date, { dryRun: true });
-  sendPdf(res, await renderInvoicePdf(inv.invoiceView(invoice)), `schedule-${s.id}-preview.pdf`);
+  sendPdf(res, (await renderInvoice(inv.invoiceView(invoice))).pdf, `schedule-${s.id}-preview.pdf`);
 });
 
 // ------------------------------------------------------------------ invoices
@@ -213,6 +216,7 @@ r.get('/api/invoices/:id', ({ params }) => {
   o.credit_notes = db.all('SELECT * FROM credit_notes WHERE invoice_id = ? ORDER BY issue_date', o.id).map((c) => parseJsonCols(c, ['line_items', 'tax_lines']));
   o.credited = inv.creditedTotal(o.id);
   o.next_number = o.invoice_number ? null : inv.peekNumber(o.issuer_profile_id, Number(D.today().slice(0, 4)));
+  o.has_docx = !o.is_legacy && usesTemplate({ kind: 'invoice', language: o.language });
   return o;
 });
 r.post('/api/invoices', ({ body }) => ({ id: inv.createInvoice(body) }));
@@ -239,13 +243,28 @@ r.get('/api/invoices/:id/pdf', async ({ res, params, query }) => {
     const full = o.is_legacy ? files.resolveInside(config.issuedDir, o.pdf_path) : await inv.ensurePdf(o);
     return files.serveFile(res, full, { download: query.get('download') === '1', name: `${o.invoice_number}.pdf` });
   }
-  sendPdf(res, await renderInvoicePdf(inv.invoiceView(o)), `draft-${o.id}.pdf`);
+  const view = inv.invoiceView(o);
+  sendPdf(res, (await renderInvoice(view)).pdf, `${view.number}.pdf`, query.get('download') === '1');
+});
+// Word version: French invoices made from the owner's template. Not available for legacy or
+// English invoices (those only exist as PDF).
+r.get('/api/invoices/:id/docx', async ({ res, params, query }) => {
+  const o = bills.mustGet('outgoing_invoices', id(params));
+  if (o.invoice_number) {
+    const full = await inv.ensureDocx(o);
+    if (!full) throw new HttpError(404, 'no Word version for this invoice (only French invoices made from the template have one)');
+    return files.serveFile(res, files.resolveInside(config.issuedDir, path.relative(config.issuedDir, full)), { download: query.get('download') !== '0', name: `${o.invoice_number}.docx` });
+  }
+  const view = inv.invoiceView(o);
+  const { docx } = await renderInvoice(view);
+  if (!docx) throw new HttpError(404, 'no Word version for this invoice (only French invoices use the template)');
+  sendBuffer(res, docx, `${view.number}.docx`, DOCX_TYPE, true);
 });
 // Live preview of unsaved editor content. POST because it carries the whole draft.
 r.post('/api/invoices/preview', async ({ res, body }) => {
   const base = body.id ? bills.mustGet('outgoing_invoices', Number(body.id)) : {};
   if (base.invoice_number) throw new HttpError(409, 'numbered invoices are previewed from their stored PDF');
-  sendPdf(res, await renderInvoicePdf(inv.previewView(body, base)), 'preview.pdf');
+  sendPdf(res, (await renderInvoice(inv.previewView(body, base))).pdf, 'preview.pdf');
 });
 r.get('/api/credit-notes/:id/pdf', async ({ res, params, query }) => {
   const cn = bills.mustGet('credit_notes', id(params));

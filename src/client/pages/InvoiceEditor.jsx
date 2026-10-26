@@ -67,7 +67,7 @@ function Editor({ invoice, clientId, reload }) {
       } catch (err) {
         setPreviewError(err.message);
       }
-    }, 700);
+    }, 1200);
     return () => clearTimeout(t);
   }, [JSON.stringify(v), JSON.stringify(items), JSON.stringify(taxes)]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => () => urlRef.current && URL.revokeObjectURL(urlRef.current), []);
@@ -118,6 +118,8 @@ function Editor({ invoice, clientId, reload }) {
     <>
       <PageHead title={isNew ? 'New invoice' : `Draft for ${client?.company_name || '…'}`} back="/invoices"
         lead={isNew ? 'One-off invoice. It gets its number only when sent.' : `Status ${invoice.status.replace('_', ' ')}${invoice.scheduled_send_date ? ` · planned send ${shortDate(invoice.scheduled_send_date)}` : ''} · will be ${invoice.next_number}`}>
+        {!isNew && <a className="btn btn-ghost" href={`/api/invoices/${invoice.id}/pdf?download=1`}>PDF</a>}
+        {!isNew && invoice.has_docx && <a className="btn btn-ghost" href={`/api/invoices/${invoice.id}/docx`}>DOCX</a>}
         {!isNew && <ConfirmButton className="btn btn-danger" confirm="Delete this draft? It has no number, so nothing is lost from the sequence." onConfirm={removeDraft}>Delete draft</ConfirmButton>}
         <button type="button" className="btn btn-ghost" onClick={save} disabled={form.busy}>{isNew ? 'Create draft' : 'Save'}</button>
         {!isNew && invoice.status !== 'approved' && <button type="button" className="btn btn-ghost" onClick={approve} disabled={form.busy}>Approve</button>}
@@ -185,6 +187,7 @@ function Issued({ inv, reload }) {
     <>
       <PageHead title={inv.invoice_number} back="/invoices" lead={`${inv.client.company_name} · issued ${shortDate(inv.issue_date)} · due ${shortDate(inv.due_date)}${inv.is_legacy ? ' · imported (issued before FinTrack)' : ''}`}>
         <a className="btn btn-ghost" href={`/api/invoices/${inv.id}/pdf?download=1`}>Download PDF</a>
+        {inv.has_docx && <a className="btn btn-ghost" href={`/api/invoices/${inv.id}/docx`}>Download DOCX</a>}
         {!inv.sent_at && inv.status !== 'void' && <button type="button" className="btn btn-gold" onClick={retrySend}>Send now</button>}
         {!inv.sent_at && inv.status !== 'void' && <ConfirmButton className="btn btn-danger" confirm="Void this unsent invoice? Its number stays used." onConfirm={voidUnsent}>Void</ConfirmButton>}
         {inv.sent_at && !['paid', 'void'].includes(inv.status) && <button type="button" className="btn btn-primary" onClick={() => setDialog('pay')}>Record payment</button>}

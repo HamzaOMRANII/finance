@@ -13,7 +13,7 @@ const db = require('../src/server/db');
 const { runJob } = require('./lib/job');
 const inv = require('../src/server/lib/invoices');
 const mailer = require('../src/server/lib/mailer');
-const { renderInvoicePdf } = require('../src/server/lib/pdf');
+const { renderInvoice } = require('../src/server/lib/render');
 const { link } = require('../src/server/lib/templates');
 const { parseList } = require('../src/server/lib/bills');
 const D = require('../src/shared/dates.mjs');
@@ -134,13 +134,13 @@ async function askApproval(invoice, schedule, { dryRun, log }) {
     '',
     `Approve: ${link('/approvals')}`,
     '',
-    'The draft PDF is attached (no number yet: it is assigned when the invoice is sent).',
+    'The draft PDF is attached. The number on it is the next free one; it is reserved only when the invoice is sent.',
   ].join('\n');
   if (dryRun) {
     log(`[dry-run] would email ${config.ownerEmail}: "${subject}" with the draft PDF`);
     return;
   }
-  const pdf = await renderInvoicePdf(inv.invoiceView(invoice));
+  const { pdf } = await renderInvoice(inv.invoiceView(invoice));
   const out = await mailer.notifyOwner({
     kind: 'approval-request', dedupeKey: `approval-request:${invoice.id}`, subject, text,
     attachments: [{ filename: `draft-${schedule.company_name}-${invoice.period_key}.pdf`, content: pdf }],

@@ -67,6 +67,7 @@ export function ClientDetail({ id }) {
                   <td><Badge status={o.status} /></td>
                   <td className="actions" onClick={(e) => e.stopPropagation()}>
                     <a className="btn btn-ghost btn-sm" href={`/api/invoices/${o.id}/pdf?download=1`}>PDF</a>
+                    {o.language === 'FR' && !o.is_legacy && <> <a className="btn btn-ghost btn-sm" href={`/api/invoices/${o.id}/docx`}>DOCX</a></>}
                   </td>
                 </tr>
               ))}</tbody>

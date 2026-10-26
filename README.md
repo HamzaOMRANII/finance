@@ -57,6 +57,7 @@ deploys never touch it.
 | `RECEIPTS_AI`, `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL` | optional Claude extraction for scanned receipts |
 | `BACKUP_DIR` | nightly archives (default `/root/backups/finance`) |
 | `DB_FILE`, `RECEIPTS_DIR`, `ISSUED_DIR`, `LOGS_DIR` | optional path overrides |
+| `INVOICE_TEMPLATE_FR`, `SOFFICE_BIN` | French .docx template and LibreOffice binary (defaults: the template folder, `soffice`) |
 
 `NODE_ENV=production` is set by pm2 (it turns on `Secure` / `__Host-` cookies); do not put it in `.env`.
 
@@ -70,6 +71,15 @@ deploys never touch it.
   leaves a gap, and numbers follow issue dates.
 - **Sent invoices are immutable**: SQLite triggers reject any change to their content and any
   delete. Corrections are credit notes (own numbers, own PDFs), linked to the original.
+- **French invoices use your Word template** `data/issued-invoices/template/Modele_Facture_FR.docx`
+  as-is (the file is only read, never modified): `src/server/lib/docx.js` fills a copy, value by
+  value after each label (“Numéro de facture :”, “Raison sociale :”…), clones the line-item row per
+  line, and fills or removes the “TVA :” row. The PDF is that .docx converted by headless
+  LibreOffice (`apt install libreoffice-writer-nogui fonts-crosextra-carlito`; Carlito matches
+  Calibri). Each sent French invoice is stored as both `HO-2026-0003.pdf` and `.docx`, and both
+  can be downloaded. To change the look, edit the .docx in Word and keep the labels. English
+  invoices and credit notes use the built-in branded layout. Drafts carry no watermark: they show
+  the next free number, which is only reserved when the invoice is sent.
 - **Recurring schedules**: `last_business_day` skips Saturday and Sunday. `approve_first` creates
   the draft 3 days before the send date and emails me the draft PDF; if it is not approved by the
   send date it is *not* sent and I get a reminder every morning. `auto_send` emails the client on

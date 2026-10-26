@@ -26,6 +26,9 @@ module.exports = {
   logsDir: abs(env.LOGS_DIR, 'automation/logs'),
   distDir: path.join(ROOT, 'dist'),
   assetsDir: path.join(ROOT, 'assets'),
+  // The owner's French invoice template, used as-is (see src/server/lib/docx.js).
+  invoiceTemplateFr: abs(env.INVOICE_TEMPLATE_FR, 'data/issued-invoices/template/Modele_Facture_FR.docx'),
+  soffice: env.SOFFICE_BIN || 'soffice',
 
   sessionSecret: env.SESSION_SECRET || '',
   sessionDays: Number(env.SESSION_DAYS) || 7,
