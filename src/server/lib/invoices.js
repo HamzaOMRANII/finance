@@ -33,6 +33,8 @@ const ISSUER_FIELDS = {
   bank_extra: { type: 'text', max: 500 },
   payment_note: { type: 'text', max: 1500 },
   footer_text: { type: 'text', max: 1500 },
+  number_format: { type: 'text', max: 60, default: '{PREFIX}-{YYYY}-{NNNN}' },
+  credit_format: { type: 'text', max: 60, default: '{PREFIX}-CN-{YYYY}-{NNNN}' },
   default_currency: { type: 'currency', default: 'EUR' },
   is_default: { type: 'bool' },
 };
@@ -126,6 +128,8 @@ function cleanIssuer(body, opts) {
     row.prefix = String(row.prefix).toUpperCase();
     if (!/^[A-Z]{2,8}$/.test(row.prefix)) throw new HttpError(400, 'prefix must be 2–8 letters', { prefix: '2–8 letters A–Z' });
   }
+  if (row.number_format) checkFormat(row.number_format);
+  if (row.credit_format) checkFormat(row.credit_format);
   return row;
 }
 
@@ -368,28 +372,62 @@ function snapshotClient(client) {
   return { company_name, contact_name, address, country, registration_id, vat_number, phone, billing_emails: parseList(billing_emails) };
 }
 
-function formatNumber(prefix, year, n, kind = 'invoice') {
-  return `${prefix}${kind === 'credit_note' ? '-CN' : ''}-${year}-${String(n).padStart(4, '0')}`;
+// Number formats (per issuer): {PREFIX} {YYYY} {YY} {MM} and {N…}, e.g. 'INV-{YYYY}-{MM}-{NNN}'.
+const SEQ = /\{(N+)\}/;
+
+function checkFormat(format) {
+  if (!SEQ.test(format)) throw new HttpError(400, 'number format needs a sequence token like {NNN}');
+  const unknown = format.replace(/\{(PREFIX|YYYY|YY|MM|N+)\}/g, '').match(/\{[^}]*\}/);
+  if (unknown) throw new HttpError(400, `unknown token ${unknown[0]} in number format`);
 }
 
-// Next number WITHOUT reserving it (dry runs and previews).
-function peekNumber(issuerId, year, kind = 'invoice') {
+const formatOf = (issuer, kind) => (kind === 'credit_note' ? issuer.credit_format : issuer.number_format);
+
+// The counter restarts each month when the format shows the month, each year otherwise.
+function periodOf(format, date) {
+  if (format.includes('{MM}')) return date.slice(0, 7);
+  if (format.includes('{YYYY}') || format.includes('{YY}')) return date.slice(0, 4);
+  return 'all';
+}
+
+function formatNumber(issuer, kind, date, n) {
+  return formatOf(issuer, kind)
+    .replaceAll('{PREFIX}', issuer.prefix)
+    .replaceAll('{YYYY}', date.slice(0, 4))
+    .replaceAll('{YY}', date.slice(2, 4))
+    .replaceAll('{MM}', date.slice(5, 7))
+    .replace(SEQ, (_, ns) => String(n).padStart(ns.length, '0'));
+}
+
+const numberTaken = (number) => db.get('SELECT 1 FROM outgoing_invoices WHERE invoice_number = ? UNION ALL SELECT 1 FROM credit_notes WHERE credit_number = ?', number, number);
+
+// Next number WITHOUT reserving it (dry runs and previews). `date` is the issue date.
+function peekNumber(issuerId, date, kind = 'invoice') {
   const issuer = mustGet('issuer_profiles', issuerId);
-  const row = db.get('SELECT last_number FROM invoice_counters WHERE issuer_profile_id = ? AND kind = ? AND year = ?', issuerId, kind, year);
-  return formatNumber(issuer.prefix, year, (row?.last_number || 0) + 1, kind);
+  const period = periodOf(formatOf(issuer, kind), date);
+  const row = db.get('SELECT last_number FROM invoice_counters WHERE issuer_profile_id = ? AND kind = ? AND period = ?', issuerId, kind, period);
+  let n = (row?.last_number || 0) + 1;
+  while (numberTaken(formatNumber(issuer, kind, date, n))) n++;
+  return formatNumber(issuer, kind, date, n);
 }
 
-// Must be called inside db.tx(). Bumps the counter and returns the new number.
-function takeNumber(issuerId, year, kind = 'invoice') {
+// Must be called inside db.tx(). Bumps the counter and returns the new number. Numbers already
+// used (e.g. imported legacy invoices) are stepped over, never reused.
+function takeNumber(issuerId, date, kind = 'invoice') {
   const issuer = mustGet('issuer_profiles', issuerId);
-  db.run(`INSERT INTO invoice_counters (issuer_profile_id, kind, year, last_number) VALUES (?, ?, ?, 1)
-          ON CONFLICT(issuer_profile_id, kind, year) DO UPDATE SET last_number = last_number + 1`, issuerId, kind, year);
-  const { last_number } = db.get('SELECT last_number FROM invoice_counters WHERE issuer_profile_id = ? AND kind = ? AND year = ?', issuerId, kind, year);
-  return formatNumber(issuer.prefix, year, last_number, kind);
+  const period = periodOf(formatOf(issuer, kind), date);
+  for (;;) {
+    db.run(`INSERT INTO invoice_counters (issuer_profile_id, kind, period, last_number) VALUES (?, ?, ?, 1)
+            ON CONFLICT(issuer_profile_id, kind, period) DO UPDATE SET last_number = last_number + 1`, issuerId, kind, period);
+    const { last_number } = db.get('SELECT last_number FROM invoice_counters WHERE issuer_profile_id = ? AND kind = ? AND period = ?', issuerId, kind, period);
+    const number = formatNumber(issuer, kind, date, last_number);
+    if (!numberTaken(number)) return number;
+  }
 }
 
-function issuedPath(number, issueDate) {
-  return path.join(number.split('-')[0], issueDate.slice(0, 4), `${number}.pdf`);
+function issuedPath(issuerId, number, issueDate) {
+  const { prefix } = mustGet('issuer_profiles', issuerId);
+  return path.join(prefix, issueDate.slice(0, 4), `${number}.pdf`);
 }
 
 // Writes an issued document. Existing files are never overwritten: issued PDFs are permanent.
@@ -414,14 +452,14 @@ async function finalize(id, { today = D.today(), actor = 'user' } = {}) {
   // Number, dates and frozen snapshots are committed together. The PDF is rendered right after
   // (pdfkit is async); if that fails, ensurePdf() re-creates it from the snapshot on the next try.
   const { rel, view } = db.tx(() => {
-    const number = takeNumber(issuer.id, Number(issueDate.slice(0, 4)));
+    const number = takeNumber(issuer.id, issueDate);
     const fields = {
       invoice_number: number,
       issue_date: issueDate,
       due_date: D.addDays(issueDate, client.payment_terms_days),
       issuer_snapshot: JSON.stringify(snapshotIssuer(issuer)),
       client_snapshot: JSON.stringify(snapshotClient(client)),
-      pdf_path: issuedPath(number, issueDate),
+      pdf_path: issuedPath(issuer.id, number, issueDate),
       status: 'approved',
       approved_at: inv.approved_at || new Date().toISOString(),
     };
@@ -480,7 +518,7 @@ function invoiceView(inv) {
   return {
     kind: 'invoice',
     // drafts show the next free number (assigned for real at send time; no watermark)
-    number: inv.invoice_number || peekNumber(inv.issuer_profile_id, Number((inv.issue_date || D.today()).slice(0, 4))),
+    number: inv.invoice_number || peekNumber(inv.issuer_profile_id, inv.issue_date || D.today()),
     draft: !inv.invoice_number,
     language: inv.language,
     currency: inv.currency,
@@ -515,7 +553,7 @@ async function send(id, { today = D.today(), dryRun = false, actor = 'user' } = 
   if (!to.length) throw new HttpError(409, `client ${client.company_name} has no billing email; add one or mark the invoice as sent manually`);
 
   if (dryRun) {
-    const number = inv.invoice_number || `${peekNumber(inv.issuer_profile_id, Number(today.slice(0, 4)))} (next free number, not reserved)`;
+    const number = inv.invoice_number || `${peekNumber(inv.issuer_profile_id, today)} (next free number, not reserved)`;
     return { dryRun: true, would: { number, to, cc, bcc: [config.ownerEmail], total: formatMoney(inv.total, inv.currency, inv.language) } };
   }
 
@@ -617,8 +655,8 @@ async function createCreditNote(id, body = {}, { today = D.today() } = {}) {
   let cnId;
   let rel;
   db.tx(() => {
-    const number = takeNumber(inv.issuer_profile_id, Number(today.slice(0, 4)), 'credit_note');
-    rel = issuedPath(number, today);
+    const number = takeNumber(inv.issuer_profile_id, today, 'credit_note');
+    rel = issuedPath(inv.issuer_profile_id, number, today);
     cnId = db.insert('credit_notes', {
       credit_number: number, invoice_id: inv.id, issuer_profile_id: inv.issuer_profile_id,
       issue_date: today, reason: reason.slice(0, 1000),

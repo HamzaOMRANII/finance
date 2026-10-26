@@ -4,24 +4,24 @@ import { PageHead, Badge, Flag, Empty, Loading, Modal, Field, Input, Select, Tex
 import { CURRENCIES } from '../../shared/money.mjs';
 
 const FIELDS = ['prefix', 'legal_name', 'title_line', 'address', 'country', 'tax_id', 'email', 'phone', 'bank_beneficiary', 'bank_name', 'bank_iban',
-  'bank_swift', 'bank_account', 'bank_address', 'bank_currency', 'bank_extra', 'payment_note', 'footer_text', 'default_currency', 'is_default'];
+  'bank_swift', 'bank_account', 'bank_address', 'bank_currency', 'bank_extra', 'payment_note', 'footer_text', 'number_format', 'credit_format', 'default_currency', 'is_default'];
 
 export default function Issuers() {
   const [rows, reload] = useApi('/issuers');
   const [editing, setEditing] = useState(null);
   return (
     <>
-      <PageHead title="Issuer profiles" lead="Who an invoice is from. Each profile has its own gapless numbering: PREFIX-YYYY-####.">
+      <PageHead title="Issuer profiles" lead="Who an invoice is from. Each profile has its own gapless numbering, in the format you set (e.g. INV-{YYYY}-{MM}-{NNN} → INV-2026-10-001, restarting every month).">
         <button type="button" className="btn btn-primary" onClick={() => setEditing({})}>+ New profile</button>
       </PageHead>
       {!rows ? <Loading /> : rows.length === 0 ? <div className="panel"><Empty>No issuer profiles.</Empty></div> : (
         <div className="table-wrap">
           <table className="t">
-            <thead><tr><th>Legal name</th><th>Prefix</th><th>Country</th><th>Tax ID / EIN</th><th>Bank</th><th>Currency</th><th /></tr></thead>
+            <thead><tr><th>Legal name</th><th>Numbers</th><th>Country</th><th>Tax ID / EIN</th><th>Bank</th><th>Currency</th><th /></tr></thead>
             <tbody>{rows.map((r) => (
               <tr key={r.id} className="clickable" onClick={() => setEditing(r)}>
                 <td><div className="cell-title">{r.legal_name}</div><div className="cell-sub">{r.title_line}</div></td>
-                <td className="mono">{r.prefix}-YYYY-####</td>
+                <td className="mono">{r.number_format}</td>
                 <td><Flag code={r.country} withName /></td>
                 <td>{r.tax_id || <Badge tone="b-warn">pending</Badge>}</td>
                 <td className="muted">{r.bank_name || '—'}</td>
@@ -40,7 +40,7 @@ export default function Issuers() {
 function IssuerModal({ issuer, onClose, onSaved }) {
   const toast = useToast();
   const isNew = !issuer.id;
-  const form = useForm(Object.fromEntries(FIELDS.map((k) => [k, issuer[k] ?? (k === 'default_currency' ? 'EUR' : k === 'is_default' ? false : '')])));
+  const form = useForm(Object.fromEntries(FIELDS.map((k) => [k, issuer[k] ?? ({ default_currency: 'EUR', is_default: false, number_format: '{PREFIX}-{YYYY}-{NNNN}', credit_format: '{PREFIX}-CN-{YYYY}-{NNNN}' }[k] ?? '')])));
   const save = () => form.submit(async (v) => {
     if (isNew) await api('/issuers', { method: 'POST', body: v });
     else await api(`/issuers/${issuer.id}`, { method: 'PUT', body: v });
@@ -66,6 +66,8 @@ function IssuerModal({ issuer, onClose, onSaved }) {
         <div className="form">
           <Field label="Legal name" error={e.legal_name}><Input form={form} name="legal_name" /></Field>
           <Field label="Number prefix" help="2–8 letters, frozen once used" error={e.prefix}><Input form={form} name="prefix" mono style={{ textTransform: 'uppercase' }} /></Field>
+          <Field label="Invoice number format" help="{PREFIX} {YYYY} {YY} {MM} {NNN}; with {MM} the count restarts monthly" error={e.number_format}><Input form={form} name="number_format" mono placeholder="INV-{YYYY}-{MM}-{NNN}" /></Field>
+          <Field label="Credit note number format" error={e.credit_format}><Input form={form} name="credit_format" mono placeholder="AV-{YYYY}-{MM}-{NNN}" /></Field>
           <Field label="Title line" help="under the name on the PDF" full><Input form={form} name="title_line" /></Field>
           <Field label="Address" full><Textarea form={form} name="address" /></Field>
           <Field label="Country" help="ISO-2" error={e.country}><Input form={form} name="country" maxLength={2} style={{ textTransform: 'uppercase' }} /></Field>

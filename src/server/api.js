@@ -215,7 +215,7 @@ r.get('/api/invoices/:id', ({ params }) => {
   o.payments = db.all('SELECT * FROM invoice_payments WHERE invoice_id = ? ORDER BY paid_date', o.id);
   o.credit_notes = db.all('SELECT * FROM credit_notes WHERE invoice_id = ? ORDER BY issue_date', o.id).map((c) => parseJsonCols(c, ['line_items', 'tax_lines']));
   o.credited = inv.creditedTotal(o.id);
-  o.next_number = o.invoice_number ? null : inv.peekNumber(o.issuer_profile_id, Number(D.today().slice(0, 4)));
+  o.next_number = o.invoice_number ? null : inv.peekNumber(o.issuer_profile_id, D.today());
   o.has_docx = !o.is_legacy && usesTemplate({ kind: 'invoice', language: o.language });
   return o;
 });

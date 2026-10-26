@@ -50,7 +50,7 @@ runJob('invoice-generator', async ({ today, dryRun, log }) => {
         log(`${dryRun ? '[dry-run] would create' : 'created'} ${invoice.status} invoice${invoice.id ? ` #${invoice.id}` : ''} for ${s.company_name}, period ${invoice.service_period_start}..${invoice.service_period_end}, send ${invoice.scheduled_send_date}, total ${total}`);
         for (const it of parseList(invoice.line_items)) log(`    ${it.quantity} × ${it.description} = ${formatMoney(it.amount, invoice.currency)}`);
         if (invoice.status === 'pending_approval' && dryRun) await askApproval(invoice, s, { dryRun, log });
-        else if (dryRun) log(`[dry-run] auto_send: would then number it ${inv.peekNumber(s.issuer_profile_id, Number(today.slice(0, 4)))} and email it to the client`);
+        else if (dryRun) log(`[dry-run] auto_send: would then number it ${inv.peekNumber(s.issuer_profile_id, today)} and email it to the client`);
       }
       if (dryRun) break; // the schedule is not advanced in a dry run
       s = db.get('SELECT s.*, c.company_name FROM recurring_invoice_schedules s JOIN clients c ON c.id = s.client_id WHERE s.id = ?', s.id);

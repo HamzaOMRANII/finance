@@ -37,11 +37,13 @@ if (!db.get('SELECT COUNT(*) AS n FROM settings').n) {
 }
 
 if (!db.get('SELECT COUNT(*) AS n FROM issuer_profiles').n) {
-  for (const { counter_2026, ...issuer } of data.issuers) {
+  for (const { counters = {}, ...issuer } of data.issuers) {
     const id = inv.saveIssuer(null, issuer);
-    // Continue the yearly sequence after invoices already issued outside FinTrack this year.
-    if (counter_2026) db.run("INSERT INTO invoice_counters (issuer_profile_id, kind, year, last_number) VALUES (?, 'invoice', 2026, ?)", id, counter_2026);
-    log(`issuer ${issuer.prefix}: ${issuer.legal_name}${counter_2026 ? ` (2026 counter starts after ${counter_2026})` : ''}`);
+    // Continue sequences after invoices already issued outside FinTrack ({ "2026-09": 1 }).
+    for (const [period, n] of Object.entries(counters)) {
+      db.run("INSERT INTO invoice_counters (issuer_profile_id, kind, period, last_number) VALUES (?, 'invoice', ?, ?)", id, period, n);
+    }
+    log(`issuer ${issuer.prefix}: ${issuer.legal_name}, numbers ${issuer.number_format || '{PREFIX}-{YYYY}-{NNNN}'}`);
   }
 }
 

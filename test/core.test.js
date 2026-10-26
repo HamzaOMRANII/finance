@@ -65,3 +65,14 @@ test('schedule drafts are idempotent per period', () => {
   assert.equal(JSON.parse(first.invoice.line_items)[0].description, 'Work October 2026');
   assert.equal(db.get('SELECT next_run_date FROM recurring_invoice_schedules WHERE id = ?', id).next_run_date, '2026-11-30');
 });
+
+test('monthly number format continues after imported numbers', async () => {
+  const issuer = inv.saveIssuer(null, { prefix: 'MM', legal_name: 'Monthly', number_format: 'INV-{YYYY}-{MM}-{NNN}' });
+  assert.throws(() => inv.saveIssuer(null, { prefix: 'BAD', legal_name: 'x', number_format: 'INV-{YYYY}' }), /sequence token/);
+  const client = db.get('SELECT id FROM clients').id;
+  db.insert('outgoing_invoices', { invoice_number: 'INV-2026-10-001', client_id: client, issuer_profile_id: issuer, language: 'FR', currency: 'EUR', status: 'sent', sent_at: 'x', is_legacy: 1 });
+  const mk = () => inv.createInvoice({ client_id: client, issuer_profile_id: issuer, line_items: [{ description: 'x', quantity: 1, unit_price: '1' }] });
+  assert.equal(inv.peekNumber(issuer, '2026-10-30'), 'INV-2026-10-002');
+  assert.equal((await inv.markSent(mk(), { today: '2026-10-30' })).invoice_number, 'INV-2026-10-002');
+  assert.equal((await inv.markSent(mk(), { today: '2026-11-02' })).invoice_number, 'INV-2026-11-001');
+});

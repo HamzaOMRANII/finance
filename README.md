@@ -63,9 +63,11 @@ deploys never touch it.
 
 ## How invoicing works
 
-- **Issuer profiles** each own a gapless yearly sequence: `HO-2026-0003`, `HOLLC-2026-0001`, credit
-  notes `HO-CN-2026-0001`. The `HO` 2026 counter starts at 2 because `INV-2026-08-001` and
-  `INV-2026-09-001` were issued before FinTrack (imported as legacy invoices with their PDFs).
+- **Issuer profiles** each own a gapless sequence in their own format (Issuers page). Tokens:
+  `{PREFIX} {YYYY} {YY} {MM} {NNN}`; with `{MM}` the count restarts every month. Hamza Omrani
+  uses `INV-{YYYY}-{MM}-{NNN}` (INV-2026-10-001, same as the invoices issued before FinTrack,
+  which are imported as legacy) and credit notes `AV-{YYYY}-{MM}-{NNN}`; the LLC uses
+  `HOLLC-{YYYY}-{NNNN}`. Numbers already used are stepped over, never reused.
 - **Numbers are given at send time** (email, or "Mark as sent" for invoices delivered by hand),
   inside one transaction with the counter. Drafts have no number, so deleting a draft never
   leaves a gap, and numbers follow issue dates.
