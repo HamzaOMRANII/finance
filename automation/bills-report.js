@@ -27,7 +27,7 @@ runJob('bills-report', async ({ today, dryRun, force, log }) => {
     const occ = billOccurrences(b, start, end);
     // overdue bills are carried into the report too: they still have to be paid
     if (b.status !== 'cancelled' && b.status !== 'paid' && b.due_date < start && !occ.length) occ.push(b.due_date);
-    for (const date of occ) rows.push({ ...b, date, warnings: bills.billWarnings({ ...b, due_date: date }, today) });
+    for (const date of occ) rows.push({ ...b, amount: bills.amountDue(b).amount, date, warnings: bills.billWarnings({ ...b, due_date: date }, today) });
   }
   rows.sort((a, b) => a.date.localeCompare(b.date));
 

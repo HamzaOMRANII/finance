@@ -156,7 +156,7 @@ const parseList = (s) => { try { return JSON.parse(s || '[]'); } catch { return 
 function billWarnings(b, today = D.today()) {
   const w = [];
   if (b.status === 'cancelled' || b.status === 'paid') return w;
-  if (b.amount === null) w.push({ level: 'info', text: 'amount unknown' });
+  if (amountDue(b).amount === null) w.push({ level: 'info', text: 'amount unknown' });
   if (!b.payment_card_id) {
     w.push({ level: 'warn', text: 'no card assigned' });
   } else {
@@ -174,14 +174,24 @@ function billWarnings(b, today = D.today()) {
   return w;
 }
 
+// Amount to pay for the open occurrence: the bill's own amount, else what the last payment
+// (from the old invoice) cost. `estimated` tells the UI the second case.
+function amountDue(b) {
+  if (b.amount !== null && b.amount !== undefined) return { amount: b.amount, estimated: false };
+  if (b.last_paid_amount !== null && b.last_paid_amount !== undefined) return { amount: b.last_paid_amount, estimated: true };
+  return { amount: null, estimated: false };
+}
+
 function billsWithCards(where = '1=1', ...params) {
   return db.all(`
     SELECT b.*, c.label AS card_label, c.last4 AS card_last4, c.status AS card_status,
-           c.usable_countries AS card_countries, c.expiry_month AS card_expiry_month, c.expiry_year AS card_expiry_year
+           c.usable_countries AS card_countries, c.expiry_month AS card_expiry_month, c.expiry_year AS card_expiry_year,
+           (SELECT p.amount FROM payments_log p WHERE p.bill_id = b.id AND p.amount IS NOT NULL
+             ORDER BY p.paid_date DESC, p.id DESC LIMIT 1) AS last_paid_amount
     FROM bills b LEFT JOIN cards c ON c.id = b.payment_card_id
     WHERE ${where} ORDER BY b.due_date, b.vendor`, ...params);
 }
 
 module.exports = {
-  cleanCard, cleanBill, createBill, updateBill, markPaid, recompute, billWarnings, billsWithCards, mustGet, parseList,
+  cleanCard, cleanBill, createBill, updateBill, markPaid, recompute, billWarnings, billsWithCards, amountDue, mustGet, parseList,
 };

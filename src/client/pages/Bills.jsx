@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { api, useApi, decimal, shortDate, navigate, today, money } from '../lib.js';
+import { api, useApi, decimal, shortDate, navigate, today, money, moneyMap } from '../lib.js';
 import {
   PageHead, Badge, Money, Flag, Days, Empty, Loading, Modal, Field, Input, Select, Textarea, FormError, useForm, useToast, ConfirmButton,
 } from '../ui.jsx';
@@ -51,7 +51,7 @@ export default function Bills({ query }) {
                   <tr key={b.id} className={`clickable ${tone}`} onClick={() => setEditing(b)}>
                     <td><div className="cell-title">{b.vendor}</div><div className="cell-sub">{b.title}{b.category ? ` · ${b.category}` : ''}</div></td>
                     <td>{b.receiver_name} <Flag code={b.receiver_country} /></td>
-                    <td className="num"><Money minor={b.amount} currency={b.currency} /></td>
+                    <td className="num"><AmountDue bill={b} /></td>
                     <td className="muted">{b.billing_cycle}</td>
                     <td className="mono">{shortDate(b.due_date)}</td>
                     <td>{!['paid', 'cancelled'].includes(b.status) && <Days n={b.days_left} />}</td>
@@ -64,6 +64,7 @@ export default function Bills({ query }) {
                 );
               })}
             </tbody>
+            <BillsTotal bills={bills} cols={9} />
           </table>
         </div>
       )}
@@ -71,6 +72,43 @@ export default function Bills({ query }) {
       {current && <BillModal bill={current} cards={cards || []} onClose={close} onSaved={() => { close(); reload(); }} onPay={(b) => { close(); setPaying(b); }} />}
       {paying && <PayModal bill={paying} cards={cards || []} onClose={() => setPaying(null)} onPaid={() => { setPaying(null); reload(); }} />}
     </>
+  );
+}
+
+// Amount to pay for the open occurrence; "last paid" when it comes from the previous payment,
+// "≈ €" when the bill is in another currency.
+export function AmountDue({ bill: b }) {
+  const minor = b.amount_due !== undefined ? b.amount_due : b.amount;
+  return (
+    <>
+      <Money minor={minor} currency={b.currency} />
+      {b.amount_estimated && <div className="cell-sub">last paid</div>}
+      {minor !== null && b.currency !== 'EUR' && (b.amount_due_eur ?? b.amount_eur) != null && <div className="cell-sub">≈ {money(b.amount_due_eur ?? b.amount_eur, 'EUR')}</div>}
+    </>
+  );
+}
+
+// Footer: total still to pay for the open bills in the table (paid/cancelled ones left out).
+function BillsTotal({ bills, cols }) {
+  const open = bills.filter((b) => !['paid', 'cancelled'].includes(b.status));
+  if (!open.length) return null;
+  const byCur = {};
+  let eur = 0;
+  let unknown = 0;
+  let noRate = false;
+  for (const b of open) {
+    if (b.amount_due === null) { unknown++; continue; }
+    byCur[b.currency] = (byCur[b.currency] || 0) + b.amount_due;
+    if (b.amount_due_eur === null) noRate = true; else eur += b.amount_due_eur;
+  }
+  return (
+    <tfoot>
+      <tr className="total-row">
+        <td colSpan={2}>To pay ({open.length} open bill{open.length > 1 ? 's' : ''})</td>
+        <td className="num"><div className="cell-title">{money(eur, 'EUR')}{noRate ? '*' : ''}</div><div className="cell-sub">{moneyMap(byCur)}</div></td>
+        <td colSpan={cols - 3} className="muted">{unknown ? `${unknown} without amount (not counted)` : ''}</td>
+      </tr>
+    </tfoot>
   );
 }
 
@@ -99,6 +137,26 @@ export function BillModal({ bill, cards, onClose, onSaved, onPay, prefill, title
   });
   const warnings = detail?.warnings || [];
   const fv = form.values;
+  const [reading, setReading] = useState(false);
+  // Reads the amount (and currency) from the selected receipt / old invoice.
+  const readReceipt = async () => {
+    setReading(true);
+    try {
+      const r = await api('/receipts/extract', { method: 'POST', body: { path: fv.receipt_file } });
+      const { amount, currency } = r.fields || {};
+      if (amount === null || amount === undefined) toast(r.note || 'No amount found in this receipt: type it in', 'bad');
+      else {
+        const cur = currency || fv.currency;
+        form.setValues((v) => ({ ...v, amount: decimal(amount, cur), currency: cur }));
+        toast(`Amount read from the receipt: ${money(amount, cur)}`);
+      }
+    } catch (err) {
+      toast(err.message, 'bad');
+    } finally {
+      setReading(false);
+    }
+  };
+  const lastPaid = detail?.payments?.find((p) => p.amount !== null);
 
   return (
     <Modal title={title || (isNew ? 'New bill' : `${bill.vendor}: ${bill.title}`)} onClose={onClose} wide={!!fv.receipt_file}
@@ -118,7 +176,9 @@ export function BillModal({ bill, cards, onClose, onSaved, onPay, prefill, title
             <Field label="Title" error={form.errors.title}><Input form={form} name="title" required /></Field>
             <Field label="Receiver" help="company or person paid"><Input form={form} name="receiver_name" /></Field>
             <Field label="Receiver country" help="ISO-2, e.g. US" error={form.errors.receiver_country}><Input form={form} name="receiver_country" maxLength={2} style={{ textTransform: 'uppercase' }} /></Field>
-            <Field label="Amount" help="empty = unknown" error={form.errors.amount}><Input form={form} name="amount" inputMode="decimal" mono /></Field>
+            <Field label="Amount to pay" help={lastPaid ? `empty = last paid (${money(lastPaid.amount, lastPaid.currency)})` : 'empty = unknown; read from the receipt below'} error={form.errors.amount}>
+              <Input form={form} name="amount" inputMode="decimal" mono />
+            </Field>
             <Field label="Currency"><Select form={form} name="currency" options={CURRENCIES} /></Field>
             <Field label="Billing cycle"><Select form={form} name="billing_cycle" options={CYCLES} /></Field>
             <Field label="Due date" help="open occurrence" error={form.errors.due_date}><Input form={form} name="due_date" type="date" /></Field>
@@ -127,6 +187,7 @@ export function BillModal({ bill, cards, onClose, onSaved, onPay, prefill, title
             <Field label="Category"><Input form={form} name="category" /></Field>
             <Field label="Receipt" help="from the receipts folder">
               <Select form={form} name="receipt_file" empty="— none —" options={(receipts || []).map((r) => [r.path, r.path])} />
+              {fv.receipt_file && <button type="button" className="btn btn-ghost btn-sm" onClick={readReceipt} disabled={reading}>{reading ? 'Reading…' : 'Use amount from receipt'}</button>}
             </Field>
             <Field label="Notes" full><Textarea form={form} name="notes" /></Field>
           </div>

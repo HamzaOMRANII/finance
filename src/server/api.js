@@ -14,6 +14,7 @@ const files = require('./lib/files');
 const { renderInvoicePdf } = require('./lib/pdf');
 const { renderInvoice, usesTemplate } = require('./lib/render');
 const D = require('../shared/dates.mjs');
+const { toEurMinor, fromMinor } = require('../shared/money.mjs');
 
 const r = new Router();
 const pub = { public: true };
@@ -100,7 +101,14 @@ r.get('/api/bills', ({ query }) => {
     p.push(q, q, q, q);
   }
   const today = D.today();
-  return bills.billsWithCards(where.join(' AND '), ...p).map((b) => ({ ...b, days_left: D.diffDays(today, b.due_date), warnings: bills.billWarnings(b, today) }));
+  const rates = dashboard.fxRates();
+  return bills.billsWithCards(where.join(' AND '), ...p).map((b) => {
+    const due = bills.amountDue(b);
+    return {
+      ...b, amount_due: due.amount, amount_estimated: due.estimated, amount_due_eur: toEurMinor(due.amount, b.currency, rates),
+      days_left: D.diffDays(today, b.due_date), warnings: bills.billWarnings(b, today),
+    };
+  });
 });
 r.get('/api/bills/:id', ({ params }) => {
   const [bill] = bills.billsWithCards('b.id = ?', id(params));
@@ -109,8 +117,20 @@ r.get('/api/bills/:id', ({ params }) => {
   bill.payments = db.all('SELECT * FROM payments_log WHERE bill_id = ? ORDER BY paid_date DESC', bill.id);
   return bill;
 });
-r.post('/api/bills', ({ body }) => ({ id: bills.createBill(body) }));
-r.put('/api/bills/:id', ({ params, body }) => { bills.updateBill(id(params), body); return { ok: true }; });
+// No amount typed but a receipt picked: read the amount from that old invoice.
+async function amountFromReceipt(body, currency) {
+  if (!body || (body.amount !== undefined && body.amount !== null && body.amount !== '') || !body.receipt_file) return body;
+  const found = await receipts.extract(String(body.receipt_file)).catch(() => null);
+  const f = found?.fields || {};
+  if (f.amount === null || f.amount === undefined || f.currency !== (body.currency || currency)) return body;
+  return { ...body, amount: fromMinor(f.amount, f.currency) };
+}
+r.post('/api/bills', async ({ body }) => ({ id: bills.createBill(await amountFromReceipt(body)) }));
+r.put('/api/bills/:id', async ({ params, body }) => {
+  const existing = bills.mustGet('bills', id(params));
+  bills.updateBill(id(params), await amountFromReceipt(body, existing.currency));
+  return { ok: true };
+});
 r.del('/api/bills/:id', ({ params }) => {
   bills.mustGet('bills', id(params));
   db.run('DELETE FROM bills WHERE id = ?', id(params));

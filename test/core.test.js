@@ -76,3 +76,17 @@ test('monthly number format continues after imported numbers', async () => {
   assert.equal((await inv.markSent(mk(), { today: '2026-10-30' })).invoice_number, 'INV-2026-10-002');
   assert.equal((await inv.markSent(mk(), { today: '2026-11-02' })).invoice_number, 'INV-2026-11-001');
 });
+
+test('bill amount falls back to the last payment; dashboard money flows', () => {
+  const dash = require('../src/server/lib/dashboard');
+  const id = bills.createBill({ title: 'Plan', vendor: 'FlowCo', currency: 'EUR', billing_cycle: 'quarterly', due_date: '2026-10-20' });
+  const row = () => bills.billsWithCards('b.id = ?', id)[0];
+  assert.deepEqual(bills.amountDue(row()), { amount: null, estimated: false });
+  bills.markPaid(id, { paid_date: '2026-10-05', amount: '30' });
+  assert.deepEqual(bills.amountDue(row()), { amount: 3000, estimated: true });
+  const k = dash.summary('2026-10-25').kpis;
+  assert.ok(k.outcome_this_month.paid_eur >= 3000);
+  assert.ok(k.recurring_monthly.by_currency.EUR >= 1000); // quarterly 30 -> 10 a month
+  assert.equal(k.per_month.length, 12);
+  assert.equal(k.per_month[11].month, '2026-10');
+});

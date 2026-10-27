@@ -240,3 +240,14 @@ table.t{ width: 100%; border-collapse: collapse; font-size: 13.5px; }
   .tl{ grid-template-columns: 1fr; gap: 2px; }
   .kpi-value{ font-size: 20px; }
 }
+
+/* dashboard groups, table totals, income/bills per month */
+.kpi-group{ margin: 4px 0 -6px; font-size: 12px; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-muted); font-weight: 600; }
+.t tfoot .total-row td{ border-top: 1px solid var(--navy-line); background: rgba(10,21,36,0.6); font-weight: 600; }
+.t td.neg{ color: #FCA5A5; }
+.flow-cell{ display: grid; grid-template-columns: minmax(84px, auto) 1fr; align-items: center; gap: 10px; min-width: 180px; }
+.flow-track{ height: 8px; border-radius: 4px; background: rgba(139,168,196,0.08); overflow: hidden; }
+.flow-bar{ display: block; height: 100%; border-radius: 0 4px 4px 0; min-width: 0; }
+.flow-in, .legend i.flow-in{ background: #1F9AA3; }
+.flow-out, .legend i.flow-out{ background: #B08A3E; }
+p.hint{ margin: 8px 0 0; font-size: 12.5px; color: var(--ink-dim); }
