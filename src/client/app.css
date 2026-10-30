@@ -254,10 +254,7 @@ p.hint{ margin: 8px 0 0; font-size: 12.5px; color: var(--ink-dim); }
 
 /* ---------- upload & analyse ---------- */
 .upload-box{ display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; padding: 14px 16px; border: 1px dashed var(--navy-line); border-radius: var(--r-tile); }
-/* receipts list: name + details in one column, buttons wrap instead of squeezing the name */
-.t td.receipt-cell{ min-width: 160px; overflow-wrap: break-word; word-break: normal; }
-.t td.receipt-actions{ width: 1%; }
-.receipt-actions{ display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; min-width: 96px; }
-@media (max-width: 720px){
-  .t td.receipt-cell, .t td.receipt-actions{ padding: 10px; }
-}
+/* receipts list: one column per file: name, details, then the buttons in one aligned row */
+.t td.receipt-cell{ overflow-wrap: anywhere; }
+.receipt-actions{ display: grid; grid-template-columns: repeat(3, minmax(0, 96px)); gap: 8px; margin-top: 10px; }
+.receipt-actions .btn{ justify-content: center; text-align: center; width: 100%; }

@@ -36,7 +36,7 @@ export default function Invoices() {
                 <td className="num">{o.sent_at ? money(o.amount_received, o.currency) : '—'}</td>
                 <td><Badge status={o.status} /></td>
                 <td className="actions" onClick={(e) => e.stopPropagation()}>
-                  <a className="btn btn-ghost btn-sm" href={`/api/invoices/${o.id}/pdf?download=1`}>PDF</a>
+                  <a className="btn btn-ghost btn-sm" href={`/api/invoices/${o.id}/pdf/${o.invoice_number || o.next_number || o.id}.pdf?download=1`}>PDF</a>
                   {o.language === 'FR' && !o.is_legacy && <> <a className="btn btn-ghost btn-sm" href={`/api/invoices/${o.id}/docx`}>DOCX</a></>}
                 </td>
               </tr>

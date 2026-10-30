@@ -84,19 +84,15 @@ function Editor({ invoice, clientId, reload }) {
     }
   };
 
-  // live PDF preview, debounced
+  // live PDF preview, debounced; the server returns a short-lived URL ending in the invoice number
   const [pdfUrl, setPdfUrl] = useState(null);
   const [previewError, setPreviewError] = useState('');
-  const urlRef = useRef(null);
   useEffect(() => {
     if (!v.client_id || !v.issuer_profile_id) return undefined;
     const t = setTimeout(async () => {
       try {
-        const res = await api('/invoices/preview', { method: 'POST', body: { ...body(), id: invoice?.id }, raw: true });
-        const url = URL.createObjectURL(await res.blob());
-        if (urlRef.current) URL.revokeObjectURL(urlRef.current);
-        urlRef.current = url;
-        setPdfUrl(url);
+        const out = await api('/invoices/preview', { method: 'POST', body: { ...body(), id: invoice?.id } });
+        setPdfUrl(out.url);
         setPreviewError('');
       } catch (err) {
         setPreviewError(err.message);
@@ -104,7 +100,6 @@ function Editor({ invoice, clientId, reload }) {
     }, 1200);
     return () => clearTimeout(t);
   }, [JSON.stringify(v), JSON.stringify(items), JSON.stringify(taxes)]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => () => urlRef.current && URL.revokeObjectURL(urlRef.current), []);
 
   const save = () => form.submit(async () => {
     if (isNew) {
@@ -154,7 +149,7 @@ function Editor({ invoice, clientId, reload }) {
     <>
       <PageHead title={isNew ? 'New invoice' : `Draft for ${client?.company_name || '…'}`} back="/invoices"
         lead={isNew ? 'One-off invoice. It gets its number only when sent.' : `Status ${invoice.status.replace('_', ' ')}${invoice.scheduled_send_date ? ` · planned send ${shortDate(invoice.scheduled_send_date)}` : ''} · will be ${invoice.next_number}`}>
-        {!isNew && <a className="btn btn-ghost" href={`/api/invoices/${invoice.id}/pdf?download=1`}>PDF</a>}
+        {!isNew && <a className="btn btn-ghost" href={`/api/invoices/${invoice.id}/pdf/${invoice.next_number}.pdf?download=1`}>PDF</a>}
         {!isNew && invoice.has_docx && <a className="btn btn-ghost" href={`/api/invoices/${invoice.id}/docx`}>DOCX</a>}
         {!isNew && <ConfirmButton className="btn btn-danger" confirm="Delete this draft? It has no number, so nothing is lost from the sequence." onConfirm={removeDraft}>Delete draft</ConfirmButton>}
         <button type="button" className="btn btn-ghost" onClick={save} disabled={form.busy}>{isNew ? 'Create draft' : 'Save'}</button>
@@ -241,7 +236,7 @@ function Issued({ inv, reload }) {
   return (
     <>
       <PageHead title={inv.invoice_number} back="/invoices" lead={`${inv.client.company_name} · issued ${shortDate(inv.issue_date)} · due ${shortDate(inv.due_date)}${inv.is_legacy ? ' · imported (issued before FinTrack)' : ''}`}>
-        <a className="btn btn-ghost" href={`/api/invoices/${inv.id}/pdf?download=1`}>Download PDF</a>
+        <a className="btn btn-ghost" href={`/api/invoices/${inv.id}/pdf/${inv.invoice_number}.pdf?download=1`}>Download PDF</a>
         {inv.has_docx && <a className="btn btn-ghost" href={`/api/invoices/${inv.id}/docx`}>Download DOCX</a>}
         {!inv.sent_at && inv.status !== 'void' && <button type="button" className="btn btn-gold" onClick={retrySend}>Send now</button>}
         {!inv.sent_at && inv.status !== 'void' && <ConfirmButton className="btn btn-danger" confirm="Void this unsent invoice? Its number stays used." onConfirm={voidUnsent}>Void</ConfirmButton>}
@@ -269,7 +264,7 @@ function Issued({ inv, reload }) {
           {inv.credit_notes.length > 0 && (
             <div className="table-wrap"><table className="t"><thead><tr><th>Credit note</th><th>Date</th><th className="num">Total</th><th /></tr></thead>
               <tbody>{inv.credit_notes.map((c) => <tr key={c.id}><td className="mono">{c.credit_number}<div className="cell-sub">{c.reason}</div></td><td className="mono">{shortDate(c.issue_date)}</td><td className="num">{money(c.total, c.currency)}</td>
-                <td className="actions"><a className="btn btn-ghost btn-sm" href={`/api/credit-notes/${c.id}/pdf`} target="_blank" rel="noreferrer">PDF</a></td></tr>)}</tbody></table></div>
+                <td className="actions"><a className="btn btn-ghost btn-sm" href={`/api/credit-notes/${c.id}/pdf/${c.credit_number}.pdf`} target="_blank" rel="noreferrer">PDF</a></td></tr>)}</tbody></table></div>
           )}
           <div className="panel">
             <div className="panel-title"><h2>Audit trail</h2></div>
@@ -281,7 +276,7 @@ function Issued({ inv, reload }) {
             </div>
           </div>
         </div>
-        <iframe className="pdf-frame" src={`/api/invoices/${inv.id}/pdf${PDF_VIEW}`} title={`Invoice ${inv.invoice_number}`} />
+        <iframe className="pdf-frame" src={`/api/invoices/${inv.id}/pdf/${inv.invoice_number}.pdf${PDF_VIEW}`} title={`Invoice ${inv.invoice_number}`} />
       </div>
       {dialog === 'pay' && <PaymentModal inv={inv} left={left} onClose={() => setDialog(null)} onDone={() => { setDialog(null); reload(); }} />}
       {dialog === 'credit' && <CreditModal inv={inv} left={left + inv.amount_received} onClose={() => setDialog(null)} onDone={() => { setDialog(null); reload(); }} />}

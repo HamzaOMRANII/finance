@@ -82,19 +82,19 @@ export default function Receipts({ meta }) {
           {!files ? <Loading /> : files.length === 0 ? <div className="panel"><Empty>No receipts yet. Use “Upload receipt”.</Empty></div> : (
             <div className="table-wrap">
               <table className="t">
-                <thead><tr><th>File</th><th /></tr></thead>
+                <thead><tr><th>Receipts ({files.length})</th></tr></thead>
                 <tbody>{files.map((f) => (
                   <tr key={f.path} className={`clickable ${selected === f.path ? 'row-ok' : ''}`} onClick={() => extract(f.path)}>
                     <td className="receipt-cell">
                       <div className="cell-title">{f.path}</div>
                       <div className="cell-sub">{dateTime(f.modified)} · {Math.max(1, Math.round(f.size / 1024))} KB{f.linked_to ? ` · linked to ${f.linked_to}` : ''}</div>
-                    </td>
-                    <td className="receipt-actions" onClick={(e) => e.stopPropagation()}>
-                      <button type="button" className="btn btn-ghost btn-sm" onClick={() => extract(f.path)}>Read</button>
-                      <a className="btn btn-ghost btn-sm" href={`/api/receipts/file?path=${encodeURIComponent(f.path)}&download=1`}>Download</a>
-                      {f.linked_to
-                        ? <button type="button" className="btn btn-ghost btn-sm" disabled title={`linked to ${f.linked_to}: remove it there first`}>Delete</button>
-                        : <ConfirmButton className="btn btn-danger btn-sm" confirm={`Delete ${f.path}?`} onConfirm={() => remove(f.path)}>Delete</ConfirmButton>}
+                      <div className="receipt-actions" onClick={(e) => e.stopPropagation()}>
+                        <button type="button" className="btn btn-ghost btn-sm" onClick={() => extract(f.path)}>Read</button>
+                        <a className="btn btn-ghost btn-sm" href={`/api/receipts/file?path=${encodeURIComponent(f.path)}&download=1`}>Download</a>
+                        {f.linked_to
+                          ? <button type="button" className="btn btn-ghost btn-sm" disabled title={`linked to ${f.linked_to}: remove it there first`}>Delete</button>
+                          : <ConfirmButton className="btn btn-danger btn-sm" confirm={`Delete ${f.path}?`} onConfirm={() => remove(f.path)}>Delete</ConfirmButton>}
+                      </div>
                     </td>
                   </tr>
                 ))}</tbody>

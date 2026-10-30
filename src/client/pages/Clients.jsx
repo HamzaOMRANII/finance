@@ -66,7 +66,7 @@ export function ClientDetail({ id }) {
                   <td className="num">{money(o.amount_received, o.currency)}</td>
                   <td><Badge status={o.status} /></td>
                   <td className="actions" onClick={(e) => e.stopPropagation()}>
-                    <a className="btn btn-ghost btn-sm" href={`/api/invoices/${o.id}/pdf?download=1`}>PDF</a>
+                    <a className="btn btn-ghost btn-sm" href={`/api/invoices/${o.id}/pdf/${o.invoice_number || o.requested_number || o.id}.pdf?download=1`}>PDF</a>
                     {o.language === 'FR' && !o.is_legacy && <> <a className="btn btn-ghost btn-sm" href={`/api/invoices/${o.id}/docx`}>DOCX</a></>}
                   </td>
                 </tr>
@@ -84,7 +84,7 @@ export function ClientDetail({ id }) {
               <tbody>{c.credit_notes.map((n) => (
                 <tr key={n.id}><td className="mono">{n.credit_number}</td><td className="mono">{n.invoice_number}</td><td className="mono">{shortDate(n.issue_date)}</td>
                   <td className="muted">{n.reason}</td><td className="num">{money(n.total, n.currency)}</td>
-                  <td className="actions"><a className="btn btn-ghost btn-sm" href={`/api/credit-notes/${n.id}/pdf?download=1`}>PDF</a></td></tr>
+                  <td className="actions"><a className="btn btn-ghost btn-sm" href={`/api/credit-notes/${n.id}/pdf/${n.credit_number}.pdf?download=1`}>PDF</a></td></tr>
               ))}</tbody>
             </table>
           </div>

@@ -1,5 +1,6 @@
 // JSON API. Every route except login/session/healthz needs a session; every non-GET route
 // also needs the CSRF header (enforced in server.js from route.opts).
+const crypto = require('node:crypto');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -281,7 +282,9 @@ r.post('/api/invoices/:id/credit-notes', async ({ params, body }) => {
   const cn = await inv.createCreditNote(id(params), body);
   return { id: cn.id, credit_number: cn.credit_number };
 });
-r.get('/api/invoices/:id/pdf', async ({ res, params, query }) => {
+// The file name is also put in the URL (/pdf/INV-2026-10-001.pdf) so that the browser's PDF
+// viewer saves it under that name, not "pdf" or a random id.
+async function invoicePdf({ res, params, query }) {
   const o = bills.mustGet('outgoing_invoices', id(params));
   if (o.pdf_path) {
     const full = o.is_legacy ? files.resolveInside(config.issuedDir, o.pdf_path) : await inv.ensurePdf(o);
@@ -289,7 +292,9 @@ r.get('/api/invoices/:id/pdf', async ({ res, params, query }) => {
   }
   const view = inv.invoiceView(o);
   sendPdf(res, (await renderInvoice(view)).pdf, `${view.number}.pdf`, query.get('download') === '1');
-});
+}
+r.get('/api/invoices/:id/pdf', invoicePdf);
+r.get('/api/invoices/:id/pdf/:name', invoicePdf);
 // Word version: French invoices made from the owner's template. Not available for legacy or
 // English invoices (those only exist as PDF).
 r.get('/api/invoices/:id/docx', async ({ res, params, query }) => {
@@ -304,18 +309,35 @@ r.get('/api/invoices/:id/docx', async ({ res, params, query }) => {
   if (!docx) throw new HttpError(404, 'no Word version for this invoice (only French invoices use the template)');
   sendBuffer(res, docx, `${view.number}.docx`, DOCX_TYPE, true);
 });
-// Live preview of unsaved editor content. POST because it carries the whole draft.
-r.post('/api/invoices/preview', async ({ res, body }) => {
+// Live preview of unsaved editor content. POST (it carries the whole draft) renders the PDF and
+// keeps it a few minutes under a random token; the editor shows it from a GET URL ending in the
+// invoice number, so saving from the viewer gives INV-….pdf.
+const previews = new Map();
+r.post('/api/invoices/preview', async ({ body }) => {
   const base = body.id ? bills.mustGet('outgoing_invoices', Number(body.id)) : {};
   if (base.invoice_number) throw new HttpError(409, 'numbered invoices are previewed from their stored PDF');
-  sendPdf(res, (await renderInvoice(inv.previewView(body, base))).pdf, 'preview.pdf');
+  const view = inv.previewView(body, base);
+  const pdf = (await renderInvoice(view)).pdf;
+  const now = Date.now();
+  for (const [k, v] of previews) if (now - v.at > 10 * 60000 || previews.size > 30) previews.delete(k);
+  const token = crypto.randomBytes(18).toString('base64url');
+  const name = `${String(view.number).replace(/[^\w.\-]/g, '_')}.pdf`;
+  previews.set(token, { pdf, at: now });
+  return { url: `/api/invoices/preview/${token}/${encodeURIComponent(name)}` };
 });
-r.get('/api/credit-notes/:id/pdf', async ({ res, params, query }) => {
+r.get('/api/invoices/preview/:token/:name', ({ res, params }) => {
+  const p = previews.get(params.token);
+  if (!p) throw new HttpError(404, 'preview expired: edit the draft to refresh it');
+  sendPdf(res, p.pdf, params.name.replace(/[^\w.\-]/g, '_'));
+});
+async function creditNotePdf({ res, params, query }) {
   const cn = bills.mustGet('credit_notes', id(params));
   const full = path.join(config.issuedDir, cn.pdf_path);
   if (!fs.existsSync(full)) inv.writeIssuedPdf(cn.pdf_path, await renderInvoicePdf(inv.creditNoteView(cn, bills.mustGet('outgoing_invoices', cn.invoice_id))));
-  files.serveFile(res, files.resolveInside(config.issuedDir, cn.pdf_path), { download: query.get('download') === '1' });
-});
+  files.serveFile(res, files.resolveInside(config.issuedDir, cn.pdf_path), { download: query.get('download') === '1', name: `${cn.credit_number}.pdf` });
+}
+r.get('/api/credit-notes/:id/pdf', creditNotePdf);
+r.get('/api/credit-notes/:id/pdf/:name', creditNotePdf);
 
 // ------------------------------------------------------------------ settings
 r.get('/api/settings', () => ({
