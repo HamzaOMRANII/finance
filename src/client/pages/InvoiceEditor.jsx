@@ -29,7 +29,8 @@ function Editor({ invoice, clientId, reload }) {
     client_id: invoice?.client_id || clientId || '', issuer_profile_id: invoice?.issuer_profile_id || '',
     language: invoice?.language || '', currency: invoice?.currency || 'EUR',
     service_period_start: invoice?.service_period_start || '', service_period_end: invoice?.service_period_end || '',
-    scheduled_send_date: invoice?.scheduled_send_date || '', legal_mentions: invoice?.legal_mentions || '',
+    scheduled_send_date: invoice?.scheduled_send_date || '', due_date: invoice?.due_date || '',
+    requested_number: invoice?.requested_number || '', legal_mentions: invoice?.legal_mentions || '',
     invoice_note: invoice?.invoice_note || '', notes: invoice?.notes || '',
   });
   const [items, setItems] = useState(itemsToEdit(invoice?.line_items, invoice?.currency || 'EUR'));
@@ -114,6 +115,8 @@ function Editor({ invoice, clientId, reload }) {
   });
 
   const canSend = !!client?.billing_emails?.length;
+  const autoNumber = invoice?.auto_number || 'the next free number';
+  const terms = client?.payment_terms_days ?? 0;
   return (
     <>
       <PageHead title={isNew ? 'New invoice' : `Draft for ${client?.company_name || '…'}`} back="/invoices"
@@ -139,6 +142,8 @@ function Editor({ invoice, clientId, reload }) {
               <Field label="Currency"><Select form={form} name="currency" options={CURRENCIES} /></Field>
               <Field label="Service period start"><Input form={form} name="service_period_start" type="date" /></Field>
               <Field label="Service period end"><Input form={form} name="service_period_end" type="date" /></Field>
+              <Field label="Invoice reference" help={`empty = ${autoNumber}`} error={form.errors.requested_number}><Input form={form} name="requested_number" mono placeholder={invoice?.auto_number || 'INV-2026-10-001'} /></Field>
+              <Field label="Due date" help={`empty = invoice date + ${terms} days`} error={form.errors.due_date}><Input form={form} name="due_date" type="date" /></Field>
             </div>
           </div>
           <div className="panel stack">

@@ -77,6 +77,22 @@ test('monthly number format continues after imported numbers', async () => {
   assert.equal((await inv.markSent(mk(), { today: '2026-11-02' })).invoice_number, 'INV-2026-11-001');
 });
 
+test('a draft keeps the reference and due date typed on it', async () => {
+  const issuer = inv.saveIssuer(null, { prefix: 'RF', legal_name: 'Ref', number_format: 'INV-{YYYY}-{MM}-{NNN}' });
+  const client = inv.saveClient(null, { company_name: 'Ref client', language: 'EN', payment_terms_days: 0 });
+  const line = [{ description: 'x', quantity: 1, unit_price: '1' }];
+  const a = inv.createInvoice({ client_id: client, issuer_profile_id: issuer, line_items: line, requested_number: 'INV-2026-09-007', due_date: '2026-11-15' });
+  assert.equal(inv.draftNumber(db.get('SELECT * FROM outgoing_invoices WHERE id = ?', a)), 'INV-2026-09-007');
+  // two drafts cannot ask for the same reference
+  assert.throws(() => inv.createInvoice({ client_id: client, issuer_profile_id: issuer, line_items: line, requested_number: 'INV-2026-09-007' }), /already used/);
+  const sent = await inv.markSent(a, { today: '2026-11-02' });
+  assert.equal(sent.invoice_number, 'INV-2026-09-007');
+  assert.equal(sent.due_date, '2026-11-15');
+  // the automatic sequence is not disturbed, and a used number cannot be asked for again
+  assert.equal(inv.peekNumber(issuer, '2026-12-01'), 'INV-2026-12-001');
+  assert.throws(() => inv.createInvoice({ client_id: client, issuer_profile_id: issuer, line_items: line, requested_number: 'INV-2026-09-007' }), /already used/);
+});
+
 test('bill amount falls back to the last payment; dashboard money flows', () => {
   const dash = require('../src/server/lib/dashboard');
   const id = bills.createBill({ title: 'Plan', vendor: 'FlowCo', currency: 'EUR', billing_cycle: 'quarterly', due_date: '2026-10-20' });

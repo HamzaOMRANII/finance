@@ -223,7 +223,11 @@ r.get('/api/invoices', ({ query }) => {
   return db.all(`SELECT o.*, c.company_name, i.prefix, i.legal_name AS issuer_name FROM outgoing_invoices o
     JOIN clients c ON c.id = o.client_id JOIN issuer_profiles i ON i.id = o.issuer_profile_id
     WHERE ${where.join(' AND ')} ORDER BY COALESCE(o.issue_date, o.scheduled_send_date, o.created_at) DESC, o.id DESC`, ...p)
-    .map((o) => parseJsonCols(o, ['line_items', 'tax_lines', 'sent_to']));
+    .map((o) => {
+      const out = parseJsonCols(o, ['line_items', 'tax_lines', 'sent_to']);
+      if (!out.invoice_number && out.status !== 'void') out.next_number = inv.draftNumber(out);
+      return out;
+    });
 });
 r.get('/api/approvals', () => db.all(`SELECT o.*, c.company_name, c.billing_emails FROM outgoing_invoices o JOIN clients c ON c.id = o.client_id
   WHERE o.status IN ('pending_approval','approved') AND o.sent_at IS NULL ORDER BY o.scheduled_send_date`)
@@ -235,7 +239,8 @@ r.get('/api/invoices/:id', ({ params }) => {
   o.payments = db.all('SELECT * FROM invoice_payments WHERE invoice_id = ? ORDER BY paid_date', o.id);
   o.credit_notes = db.all('SELECT * FROM credit_notes WHERE invoice_id = ? ORDER BY issue_date', o.id).map((c) => parseJsonCols(c, ['line_items', 'tax_lines']));
   o.credited = inv.creditedTotal(o.id);
-  o.next_number = o.invoice_number ? null : inv.peekNumber(o.issuer_profile_id, D.today());
+  o.next_number = o.invoice_number ? null : inv.draftNumber(o);
+  o.auto_number = o.invoice_number ? null : inv.peekNumber(o.issuer_profile_id, D.today());
   o.has_docx = !o.is_legacy && usesTemplate({ kind: 'invoice', language: o.language });
   return o;
 });

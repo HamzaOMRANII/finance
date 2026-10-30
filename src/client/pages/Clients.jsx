@@ -59,7 +59,7 @@ export function ClientDetail({ id }) {
               <thead><tr><th>Number</th><th>Issued</th><th>Period</th><th className="num">Total</th><th className="num">Received</th><th>Status</th><th /></tr></thead>
               <tbody>{c.invoices.map((o) => (
                 <tr key={o.id} className="clickable" onClick={go(`/invoices/${o.id}`)}>
-                  <td className="mono">{o.invoice_number || <span className="muted">draft #{o.id}</span>}{o.is_legacy ? <span className="cell-sub"> · legacy</span> : null}</td>
+                  <td className="mono">{o.invoice_number || <>{o.requested_number || `#${o.id}`}<span className="cell-sub"> draft</span></>}{o.is_legacy ? <span className="cell-sub"> · legacy</span> : null}</td>
                   <td className="mono">{shortDate(o.issue_date || o.scheduled_send_date)}</td>
                   <td className="muted">{o.service_period_start ? `${shortDate(o.service_period_start)} – ${shortDate(o.service_period_end)}` : '—'}</td>
                   <td className="num">{money(o.total, o.currency)}</td>

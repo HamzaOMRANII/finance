@@ -294,12 +294,15 @@ function cleanInvoiceBody(body, base = {}) {
     service_period_start: { type: 'date' },
     service_period_end: { type: 'date' },
     scheduled_send_date: { type: 'date' },
+    due_date: { type: 'date' },
+    requested_number: { type: 'text', max: 40 },
     legal_mentions: { type: 'text', max: 2000 },
     invoice_note: { type: 'text', max: 2000 },
     notes: { type: 'text', max: 4000 },
   }, merged);
   const client = mustGet('clients', row.client_id);
   mustGet('issuer_profiles', row.issuer_profile_id);
+  if (row.requested_number) checkRequestedNumber(row.requested_number, base.id);
   row.language ||= client.language;
   row.currency ||= client.currency;
   if (body.legal_mentions === undefined && !base.id) row.legal_mentions = client.legal_mentions;
@@ -317,6 +320,21 @@ function cleanInvoiceBody(body, base = {}) {
     total: totals.total,
   });
   return row;
+}
+
+// A reference typed on a draft must not be used by another invoice, credit note or draft.
+function checkRequestedNumber(number, ownId = 0) {
+  if (!/^[A-Za-z0-9][A-Za-z0-9\-_/.]*$/.test(number)) {
+    throw new HttpError(400, 'reference may only use letters, digits and - _ / .', { requested_number: 'letters, digits, - _ / .' });
+  }
+  if (numberTaken(number) || db.get('SELECT 1 FROM outgoing_invoices WHERE requested_number = ? AND id != ? AND invoice_number IS NULL', number, ownId || 0)) {
+    throw new HttpError(409, `${number} is already used by another invoice`, { requested_number: 'already used' });
+  }
+}
+
+// Number a draft will get: the reference typed on it, else the next free one.
+function draftNumber(inv, date = D.today()) {
+  return inv.requested_number || peekNumber(inv.issuer_profile_id, date);
 }
 
 // PDF view of unsaved editor content (live preview), on top of an existing invoice or from scratch.
@@ -452,11 +470,17 @@ async function finalize(id, { today = D.today(), actor = 'user' } = {}) {
   // Number, dates and frozen snapshots are committed together. The PDF is rendered right after
   // (pdfkit is async); if that fails, ensurePdf() re-creates it from the snapshot on the next try.
   const { rel, view } = db.tx(() => {
-    const number = takeNumber(issuer.id, issueDate);
+    let number;
+    if (inv.requested_number) {
+      if (numberTaken(inv.requested_number)) throw new HttpError(409, `${inv.requested_number} is already used; change the reference on the draft`);
+      number = inv.requested_number;
+    } else {
+      number = takeNumber(issuer.id, issueDate);
+    }
     const fields = {
       invoice_number: number,
       issue_date: issueDate,
-      due_date: D.addDays(issueDate, client.payment_terms_days),
+      due_date: inv.due_date || D.addDays(issueDate, client.payment_terms_days),
       issuer_snapshot: JSON.stringify(snapshotIssuer(issuer)),
       client_snapshot: JSON.stringify(snapshotClient(client)),
       pdf_path: issuedPath(issuer.id, number, issueDate),
@@ -518,7 +542,7 @@ function invoiceView(inv) {
   return {
     kind: 'invoice',
     // drafts show the next free number (assigned for real at send time; no watermark)
-    number: inv.invoice_number || peekNumber(inv.issuer_profile_id, inv.issue_date || D.today()),
+    number: inv.invoice_number || draftNumber(inv, inv.issue_date || D.today()),
     draft: !inv.invoice_number,
     language: inv.language,
     currency: inv.currency,
@@ -553,7 +577,7 @@ async function send(id, { today = D.today(), dryRun = false, actor = 'user' } = 
   if (!to.length) throw new HttpError(409, `client ${client.company_name} has no billing email; add one or mark the invoice as sent manually`);
 
   if (dryRun) {
-    const number = inv.invoice_number || `${peekNumber(inv.issuer_profile_id, today)} (next free number, not reserved)`;
+    const number = inv.invoice_number || inv.requested_number || `${peekNumber(inv.issuer_profile_id, today)} (next free number, not reserved)`;
     return { dryRun: true, would: { number, to, cc, bcc: [config.ownerEmail], total: formatMoney(inv.total, inv.currency, inv.language) } };
   }
 
@@ -717,7 +741,7 @@ module.exports = {
   cleanLineItems, cleanTaxLines, computeTotals,
   saveIssuer, saveClient, saveSchedule,
   sendDateInMonth, firstSendDate, followingSendDate, periodFor, fillPlaceholders, draftFromSchedule,
-  createInvoice, updateInvoice, deleteDraft, previewView, approve, finalize, ensurePdf, ensureDocx, docxPathOf, invoiceView, peekNumber,
+  createInvoice, updateInvoice, deleteDraft, previewView, approve, finalize, ensurePdf, ensureDocx, docxPathOf, invoiceView, peekNumber, draftNumber,
   send, markSent, recordPayment, voidInvoice, createCreditNote, creditNoteView, creditedTotal,
   markOverdue, logEvent, writeIssuedPdf,
 };

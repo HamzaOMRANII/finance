@@ -27,7 +27,7 @@ export default function Invoices() {
             <thead><tr><th>Number</th><th>Client</th><th>Issuer</th><th>Date</th><th>Due</th><th className="num">Total</th><th className="num">Received</th><th>Status</th><th /></tr></thead>
             <tbody>{rows.map((o) => (
               <tr key={o.id} className={`clickable ${o.status === 'overdue' ? 'row-danger' : o.status === 'pending_approval' ? 'row-warn' : ''}`} onClick={go(`/invoices/${o.id}`)}>
-                <td className="mono">{o.invoice_number || <span className="muted">draft #{o.id}</span>}</td>
+                <td className="mono">{o.invoice_number || <>{o.next_number || `#${o.id}`}<span className="cell-sub"> draft</span></>}</td>
                 <td className="cell-title">{o.company_name}</td>
                 <td className="mono">{o.prefix}</td>
                 <td className="mono">{shortDate(o.issue_date || o.scheduled_send_date)}{!o.issue_date && o.scheduled_send_date ? <span className="cell-sub"> planned</span> : null}</td>
