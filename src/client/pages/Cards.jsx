@@ -38,7 +38,7 @@ function CardTile({ card, onOpen }) {
       <div className="row"><span className="cell-title">{card.label}</span><span className="spacer" /><Badge status={card.status} /></div>
       <div style={{ fontFamily: 'var(--font-mono)', fontSize: 20, letterSpacing: '.12em', color: '#fff' }}>•••• •••• •••• {card.last4}</div>
       <div className="row" style={{ fontSize: 13, color: 'var(--ink-muted)' }}>
-        <span>{card.bank || '—'}{card.network ? ` · ${card.network}` : ''}</span><span className="spacer" />
+        <span>{card.bank || '—'}{card.network ? ` · ${card.network}` : ''}{card.swift ? ` · ${card.swift}` : ''}</span><span className="spacer" />
         <span className="mono">exp {expiryText(card)}</span>{card.currency && <span className="chip">{card.currency}</span>}
       </div>
       <div className="chips">{card.usable_countries.map((c) => <span key={c} className="chip"><Flag code={c} /> {c === 'worldwide' ? 'worldwide' : c}</span>)}</div>
@@ -55,7 +55,10 @@ function CardModal({ card, onClose, onSaved }) {
     label: card.label || '', bank: card.bank || '', network: card.network || '', last4: card.last4 || '',
     expiry_month: card.expiry_month || '', expiry_year: card.expiry_year || '', currency: card.currency || '',
     status: card.status || 'active', usable_countries: (card.usable_countries || ['worldwide']).join(', '), notes: card.notes || '',
+    holder_name: card.holder_name || '', iban: card.iban || '', swift: card.swift || '', account_number: card.account_number || '',
+    bank_country: card.bank_country || '', bank_address: card.bank_address || '',
   });
+  const [showBank, setShowBank] = useState(!!(card.iban || card.swift || card.account_number || card.holder_name || card.bank_address));
   const save = () => form.submit(async (v) => {
     if (isNew) await api('/cards', { method: 'POST', body: v });
     else await api(`/cards/${card.id}`, { method: 'PUT', body: v });
@@ -96,6 +99,21 @@ function CardModal({ card, onClose, onSaved }) {
           </Field>
           <Field label="Notes" full><Textarea form={form} name="notes" /></Field>
         </div>
+        {!showBank
+          ? <div><button type="button" className="btn btn-ghost btn-sm" onClick={() => setShowBank(true)}>+ Bank details (optional: SWIFT, IBAN…)</button></div>
+          : (
+            <div>
+              <div className="panel-title"><h2>Bank details</h2><span className="hint">optional · for transfers to the account behind this card</span></div>
+              <div className="form">
+                <Field label="Account holder"><Input form={form} name="holder_name" /></Field>
+                <Field label="SWIFT / BIC" help="8 or 11 characters" error={form.errors.swift}><Input form={form} name="swift" mono placeholder="VCBCVNVX" style={{ textTransform: 'uppercase' }} /></Field>
+                <Field label="IBAN" error={form.errors.iban}><Input form={form} name="iban" mono placeholder="FR76 …" style={{ textTransform: 'uppercase' }} /></Field>
+                <Field label="Account number" help="when there is no IBAN"><Input form={form} name="account_number" mono /></Field>
+                <Field label="Bank country" help="ISO-2, e.g. VN" error={form.errors.bank_country}><Input form={form} name="bank_country" maxLength={2} style={{ textTransform: 'uppercase' }} /></Field>
+                <Field label="Bank address" full><Input form={form} name="bank_address" /></Field>
+              </div>
+            </div>
+          )}
         {detail?.bills?.length > 0 && (
           <div className="table-wrap">
             <table className="t">

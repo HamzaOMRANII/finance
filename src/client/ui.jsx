@@ -1,5 +1,5 @@
 // Shared UI pieces: logo, page header, badges, money, modal, form fields, toasts.
-import { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { STATUS_TONE, label, flag, countryName, money, go } from './lib.js';
 
 // The omranisystems mark, FinTrack edition: petrol S, gold badge with a rising line.
@@ -205,5 +205,16 @@ export function ConfirmButton({ confirm, onConfirm, className = 'btn btn-ghost b
       onClick={() => { if (window.confirm(confirm)) onConfirm(); }}>
       {children}
     </button>
+  );
+}
+
+// File picker shown as a button ("Upload & analyse"). Calls onFile(file) once a file is chosen.
+export function UploadButton({ label = 'Upload', busyLabel = 'Uploading…', onFile, busy, className = 'btn btn-primary', accept = '.pdf,.png,.jpg,.jpeg,.webp' }) {
+  const ref = useRef(null);
+  return (
+    <>
+      <input ref={ref} type="file" accept={accept} hidden onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) onFile(f); }} />
+      <button type="button" className={className} onClick={() => ref.current?.click()} disabled={busy}>{busy ? busyLabel : label}</button>
+    </>
   );
 }

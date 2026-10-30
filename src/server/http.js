@@ -13,6 +13,24 @@ function sendJson(res, status, data, headers = {}) {
   res.end(body);
 }
 
+function readBody(req, max) {
+  return new Promise((resolve, reject) => {
+    let size = 0;
+    const chunks = [];
+    req.on('data', (c) => {
+      size += c.length;
+      if (size > max) {
+        reject(new HttpError(413, `file too large (max ${Math.round(max / 1024 / 1024)} MB)`));
+        req.destroy();
+        return;
+      }
+      chunks.push(c);
+    });
+    req.on('end', () => resolve(Buffer.concat(chunks)));
+    req.on('error', reject);
+  });
+}
+
 function readJson(req) {
   return new Promise((resolve, reject) => {
     let size = 0;
@@ -79,4 +97,4 @@ class Router {
   }
 }
 
-module.exports = { sendJson, readJson, parseCookies, Router, HttpError };
+module.exports = { sendJson, readJson, readBody, parseCookies, Router, HttpError };

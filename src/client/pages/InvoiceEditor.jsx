@@ -1,10 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
-import { api, useApi, money, shortDate, dateTime, navigate, decimal, today } from '../lib.js';
-import { PageHead, Badge, Loading, Modal, Field, Input, Select, Textarea, FormError, useForm, useToast, ConfirmButton } from '../ui.jsx';
+import { api, upload, useApi, money, shortDate, dateTime, navigate, decimal, today } from '../lib.js';
+import { PageHead, Badge, Loading, Modal, Field, Input, Select, Textarea, FormError, useForm, useToast, ConfirmButton, UploadButton } from '../ui.jsx';
 import { LineItemsEditor, TaxLinesEditor, Totals, itemsToEdit, taxesToEdit } from './LineItems.jsx';
 import { CURRENCIES } from '../../shared/money.mjs';
 
 const EDITABLE = ['draft', 'pending_approval', 'approved'];
+// Browser PDF viewer: no toolbar or page-thumbnail sidebar, page fitted to the frame width
+// (download buttons are on the page itself).
+const PDF_VIEW = '#toolbar=0&navpanes=0&view=FitH';
 
 export default function InvoiceEditor({ id, query }) {
   if (id === 'new') return <Editor invoice={null} clientId={query.get('client')} />;
@@ -38,11 +41,12 @@ function Editor({ invoice, clientId, reload }) {
   const v = form.values;
   const client = (clients || []).find((c) => String(c.id) === String(v.client_id));
 
-  // new invoice: fill defaults from the chosen client
+  // new invoice: fill defaults from the chosen client (not over what an analysed file gave)
+  const analysed = useRef(false);
   useEffect(() => {
     if (!isNew || !client) return;
     form.setValues((s) => ({
-      ...s, currency: client.currency, language: client.language,
+      ...s, ...(analysed.current ? {} : { currency: client.currency, language: client.language }),
       issuer_profile_id: s.issuer_profile_id || client.default_issuer_profile_id || (issuers || []).find((i) => i.is_default)?.id || '',
       legal_mentions: s.legal_mentions || client.legal_mentions || '', invoice_note: s.invoice_note || client.invoice_note || '',
     }));
@@ -50,6 +54,36 @@ function Editor({ invoice, clientId, reload }) {
   }, [client?.id, issuers]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const body = () => ({ ...v, line_items: items, tax_lines: taxes });
+
+  // Upload an existing invoice (PDF or photo), read it and fill the editor. The file is not kept.
+  const [analysing, setAnalysing] = useState(false);
+  const [analysis, setAnalysis] = useState(null);
+  const analyse = async (file) => {
+    setAnalysing(true);
+    try {
+      const r = await upload('/invoices/analyse', file);
+      const f = r.fields || {};
+      const cur = f.currency || v.currency;
+      const pick = (k, val) => (val !== null && val !== undefined && val !== '' ? { [k]: val } : {});
+      analysed.current = true;
+      form.setValues((s) => ({
+        ...s,
+        ...pick('client_id', f.client_id), ...pick('issuer_profile_id', f.issuer_profile_id),
+        ...pick('language', f.language), ...pick('currency', f.currency),
+        ...pick('service_period_start', f.service_period_start), ...pick('service_period_end', f.service_period_end),
+        ...pick('due_date', f.due_date),
+        ...(r.number_taken ? {} : pick('requested_number', f.invoice_number)),
+      }));
+      if (f.line_items?.length) setItems(itemsToEdit(f.line_items, cur));
+      else if (f.total != null) setItems([{ description: '', detail: '', quantity: '1', unit: '', unit_price: decimal(f.total, cur), variable_quantity: false }]);
+      setAnalysis({ ...r, name: file.name });
+      toast(r.method === 'none' ? (r.note || 'Nothing could be read') : `Read ${file.name}: check the fields, then create the draft`, r.method === 'none' ? 'bad' : 'ok');
+    } catch (err) {
+      toast(err.message, 'bad');
+    } finally {
+      setAnalysing(false);
+    }
+  };
 
   // live PDF preview, debounced
   const [pdfUrl, setPdfUrl] = useState(null);
@@ -130,6 +164,23 @@ function Editor({ invoice, clientId, reload }) {
         {!isNew && <button type="button" className="btn btn-gold" onClick={approveAndSend} disabled={form.busy || !canSend} title={canSend ? '' : 'client has no billing email'}>Approve & send</button>}
       </PageHead>
       {!isNew && invoice.status === 'approved' && invoice.scheduled_send_date > today() && <div className="note info">Approved. The daily job emails it on {shortDate(invoice.scheduled_send_date)} at 08:00, or send it now.</div>}
+      {isNew && (
+        <div className="upload-box">
+          <div>
+            <div className="cell-title">Start from an existing invoice?</div>
+            <div className="cell-sub">Upload it (PDF or photo, max 2 MB): client, dates, period, reference and lines are filled for you. Or fill the form by hand.</div>
+          </div>
+          <UploadButton label="Upload & analyse" busyLabel="Analysing…" busy={analysing} onFile={analyse} />
+        </div>
+      )}
+      {analysis && (
+        <div className="note info">
+          Read from {analysis.name}{analysis.fields.total != null ? ` · total on the document ${money(analysis.fields.total, analysis.fields.currency || v.currency)}` : ''}.
+          {!analysis.fields.client_id && ' Client not recognised: pick it.'}
+          {analysis.number_taken && ` Its number ${analysis.fields.invoice_number} is already used, so the reference was left empty (next free number).`}
+          {analysis.note && ` ${analysis.note}`}
+        </div>
+      )}
       {client && !canSend && <div className="note">{client.company_name} has no billing email: add one on the client to send from here, or use “Mark as sent” after delivering the PDF yourself.</div>}
       <FormError form={form} />
       <div className="split">
@@ -162,7 +213,7 @@ function Editor({ invoice, clientId, reload }) {
         </div>
         <div className="stack">
           {previewError && <div className="form-error">{previewError}</div>}
-          {pdfUrl ? <iframe className="pdf-frame" src={pdfUrl} title="Invoice preview" /> : <div className="panel"><div className="empty">Pick a client and an issuer to see the PDF.</div></div>}
+          {pdfUrl ? <iframe key={pdfUrl} className="pdf-frame" src={`${pdfUrl}${PDF_VIEW}`} title="Invoice preview" /> : <div className="panel"><div className="empty">Pick a client and an issuer to see the PDF.</div></div>}
         </div>
       </div>
     </>
@@ -231,7 +282,7 @@ function Issued({ inv, reload }) {
             </div>
           </div>
         </div>
-        <iframe className="pdf-frame" src={`/api/invoices/${inv.id}/pdf`} title={`Invoice ${inv.invoice_number}`} />
+        <iframe className="pdf-frame" src={`/api/invoices/${inv.id}/pdf${PDF_VIEW}`} title={`Invoice ${inv.invoice_number}`} />
       </div>
       {dialog === 'pay' && <PaymentModal inv={inv} left={left} onClose={() => setDialog(null)} onDone={() => { setDialog(null); reload(); }} />}
       {dialog === 'credit' && <CreditModal inv={inv} left={left + inv.amount_received} onClose={() => setDialog(null)} onDone={() => { setDialog(null); reload(); }} />}

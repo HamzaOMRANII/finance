@@ -8,6 +8,7 @@ const path = require('node:path');
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'fintrack-test-'));
 process.env.DB_FILE = path.join(tmp, 't.db');
 process.env.ISSUED_DIR = path.join(tmp, 'issued');
+process.env.RECEIPTS_DIR = path.join(tmp, 'receipts');
 
 const { toMinor, formatMoney } = require('../src/shared/money.mjs');
 const D = require('../src/shared/dates.mjs');
@@ -105,4 +106,27 @@ test('bill amount falls back to the last payment; dashboard money flows', () => 
   assert.ok(k.recurring_monthly.by_currency.EUR >= 1000); // quarterly 30 -> 10 a month
   assert.equal(k.per_month.length, 12);
   assert.equal(k.per_month[11].month, '2026-10');
+});
+
+test('receipt reading: next charge date and cycle; card bank details', () => {
+  const receipts = require('../src/server/lib/receipts');
+  const f = receipts.detect('$9.99 / month, plus applicable taxes\nYour next credit card charge will be on November 5, 2026');
+  assert.equal(f.billing_cycle, 'monthly');
+  assert.equal(f.next_due_date, '2026-11-05');
+  assert.equal(receipts.detect('Date de facture : 10 Sept 2026 Total 5,00 €').date, '2026-09-10');
+  assert.equal(bills.cleanCard({ label: 'x', last4: '1234', swift: 'vcbc vnvx' }).swift, 'VCBCVNVX');
+  assert.throws(() => bills.cleanCard({ label: 'x', last4: '1234', swift: 'ABC' }), /SWIFT/);
+});
+
+test('receipt upload refuses fake PDFs; linked receipts cannot be deleted', () => {
+  const receipts = require('../src/server/lib/receipts');
+  assert.throws(() => receipts.save('x.pdf', Buffer.from('hello')), /not a PDF/);
+  assert.throws(() => receipts.save('x.exe', Buffer.from('%PDF-1')), /only PDF/);
+  const rel = receipts.save('my bill.pdf', Buffer.from('%PDF-1.4 test'));
+  assert.equal(receipts.save('my bill.pdf', Buffer.from('%PDF-1.4 test')), rel.replace('my bill.pdf', 'my bill (2).pdf'));
+  const billId = bills.createBill({ title: 'T', vendor: 'V', currency: 'EUR', billing_cycle: 'monthly', due_date: '2026-11-01', receipt_file: rel });
+  assert.throws(() => receipts.remove(rel), /linked/);
+  db.update('bills', billId, { receipt_file: null });
+  receipts.remove(rel);
+  assert.ok(!receipts.list().some((r) => r.path === rel));
 });

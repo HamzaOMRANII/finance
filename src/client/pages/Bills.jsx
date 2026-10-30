@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { api, useApi, decimal, shortDate, navigate, today, money, moneyMap } from '../lib.js';
+import { api, upload, useApi, decimal, shortDate, navigate, today, money, moneyMap } from '../lib.js';
 import {
-  PageHead, Badge, Money, Flag, Days, Empty, Loading, Modal, Field, Input, Select, Textarea, FormError, useForm, useToast, ConfirmButton,
+  PageHead, Badge, Money, Flag, Days, Empty, Loading, Modal, Field, Input, Select, Textarea, FormError, useForm, useToast, ConfirmButton, UploadButton,
 } from '../ui.jsx';
 import { CURRENCIES } from '../../shared/money.mjs';
+import { nextOccurrence } from '../../shared/dates.mjs';
 
 const CYCLES = ['one-time', 'monthly', 'quarterly', 'yearly'];
 const STATUSES = ['upcoming', 'paid', 'overdue', 'cancelled'];
@@ -113,10 +114,20 @@ function BillsTotal({ bills, cols }) {
 }
 
 // Used by Bills and by the Receipts import (with `prefill`).
+// Next due date from what a receipt says: the "next charge" date when written, else the
+// receipt date rolled forward by the billing cycle until it is today or later.
+function dueFromReceipt(f, cycle) {
+  if (f.next_due_date) return f.next_due_date;
+  if (!f.date) return null;
+  let d = f.date;
+  for (let i = 0; i < 400 && cycle !== 'one-time' && d < today(); i++) d = nextOccurrence(d, cycle) || d;
+  return d;
+}
+
 export function BillModal({ bill, cards, onClose, onSaved, onPay, prefill, title }) {
   const toast = useToast();
   const isNew = !bill.id;
-  const [receipts] = useApi('/receipts');
+  const [receipts, reloadReceipts] = useApi('/receipts');
   const [detail] = useApi(bill.id ? `/bills/${bill.id}` : null);
   const form = useForm({
     title: bill.title || '', vendor: bill.vendor || '', receiver_name: bill.receiver_name || '', receiver_country: bill.receiver_country || '',
@@ -158,6 +169,41 @@ export function BillModal({ bill, cards, onClose, onSaved, onPay, prefill, title
   };
   const lastPaid = detail?.payments?.find((p) => p.amount !== null);
 
+  // Upload a bill / receipt, read it, and fill the form (new bill: everything; existing: amount, receipt, due date).
+  const [analysing, setAnalysing] = useState(false);
+  const [analysis, setAnalysis] = useState(null);
+  const analyse = async (file) => {
+    setAnalysing(true);
+    try {
+      const r = await upload('/receipts/upload?analyse=1', file);
+      reloadReceipts();
+      const f = r.fields || {};
+      const cycle = f.billing_cycle || fv.billing_cycle;
+      const cur = f.currency || fv.currency;
+      const pick = (k, val) => (val !== null && val !== undefined && val !== '' ? { [k]: val } : {});
+      form.setValues((v) => ({
+        ...v,
+        receipt_file: r.file,
+        ...(f.amount != null ? { amount: decimal(f.amount, cur), currency: cur } : pick('currency', f.currency)),
+        ...pick('due_date', dueFromReceipt(f, cycle)),
+        ...(isNew ? {
+          ...pick('vendor', f.vendor),
+          ...pick('title', f.title || f.vendor),
+          ...pick('receiver_name', f.receiver_name || (f.vendor && !v.receiver_name ? f.vendor : null)),
+          ...pick('receiver_country', f.receiver_country),
+          ...pick('billing_cycle', f.billing_cycle),
+        } : {}),
+      }));
+      setAnalysis(r);
+      const found = ['vendor', 'amount', 'date', 'billing_cycle'].filter((k) => f[k] != null).length;
+      toast(found ? `Read ${file.name}: check the fields, then save` : (r.note || 'Nothing could be read: fill the fields by hand'), found ? 'ok' : 'bad');
+    } catch (err) {
+      toast(err.message, 'bad');
+    } finally {
+      setAnalysing(false);
+    }
+  };
+
   return (
     <Modal title={title || (isNew ? 'New bill' : `${bill.vendor}: ${bill.title}`)} onClose={onClose} wide={!!fv.receipt_file}
       footer={<>
@@ -169,6 +215,17 @@ export function BillModal({ bill, cards, onClose, onSaved, onPay, prefill, title
       </>}>
       <div className={fv.receipt_file ? 'split' : undefined}>
         <div className="stack">
+          {!prefill && (
+            <div className="upload-box">
+              <div>
+                <div className="cell-title">{isNew ? 'Have the bill or receipt?' : 'New receipt for this bill?'}</div>
+                <div className="cell-sub">{isNew ? 'Upload it (PDF or photo, max 2 MB) and the fields below are filled for you. Or fill them by hand.' : 'Upload it to update the amount, due date and receipt.'}</div>
+              </div>
+              <UploadButton label="Upload & analyse" busyLabel="Analysing…" busy={analysing} onFile={analyse} />
+            </div>
+          )}
+          {analysis?.matching_bill && isNew && <div className="note">A bill for {analysis.fields.vendor} already exists (#{analysis.matching_bill.id} {analysis.matching_bill.title}). Open it from the list to add this receipt instead of creating a duplicate.</div>}
+          {analysis?.note && <div className="note">{analysis.note}</div>}
           <FormError form={form} />
           {warnings.filter((w) => w.level !== 'info').map((w, i) => <div key={i} className="note">{w.text}</div>)}
           <div className="form">
@@ -215,7 +272,7 @@ export function BillModal({ bill, cards, onClose, onSaved, onPay, prefill, title
 export function ReceiptPreview({ path }) {
   const url = `/api/receipts/file?path=${encodeURIComponent(path)}`;
   return /\.pdf$/i.test(path)
-    ? <iframe className="receipt-frame" src={url} title={`Receipt ${path}`} />
+    ? <iframe className="receipt-frame" src={`${url}#toolbar=0&navpanes=0&view=FitH`} title={`Receipt ${path}`} />
     : <img className="receipt-img" src={url} alt={`Receipt ${path}`} />;
 }
 

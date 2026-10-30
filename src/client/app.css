@@ -251,3 +251,6 @@ table.t{ width: 100%; border-collapse: collapse; font-size: 13.5px; }
 .flow-in, .legend i.flow-in{ background: #1F9AA3; }
 .flow-out, .legend i.flow-out{ background: #B08A3E; }
 p.hint{ margin: 8px 0 0; font-size: 12.5px; color: var(--ink-dim); }
+
+/* ---------- upload & analyse ---------- */
+.upload-box{ display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; padding: 14px 16px; border: 1px dashed var(--navy-line); border-radius: var(--r-tile); }

@@ -15,6 +15,12 @@ const CARD_FIELDS = {
   status: { type: 'enum', values: ['active', 'standby', 'blocked', 'expired'], default: 'active' },
   usable_countries: { type: 'countries' },
   notes: { type: 'text', max: 2000 },
+  holder_name: { type: 'text', max: 120 },
+  iban: { type: 'text', max: 42 },
+  swift: { type: 'text', max: 11 },
+  account_number: { type: 'text', max: 40 },
+  bank_country: { type: 'country' },
+  bank_address: { type: 'text', max: 300 },
 };
 
 const BILL_FIELDS = {
@@ -48,7 +54,16 @@ function cleanCard(body, opts) {
   for (const k of ['pan', 'card_number', 'number', 'cvv', 'cvc', 'pin']) {
     if (body && body[k] !== undefined) throw new HttpError(400, `field "${k}" is not accepted: only the last 4 digits are stored`);
   }
-  return clean(CARD_FIELDS, body, opts);
+  const row = clean(CARD_FIELDS, body, opts);
+  if (row.swift) {
+    row.swift = row.swift.replace(/\s/g, '').toUpperCase();
+    if (!/^[A-Z]{6}[A-Z0-9]{2}([A-Z0-9]{3})?$/.test(row.swift)) throw new HttpError(400, 'SWIFT / BIC must be 8 or 11 letters and digits', { swift: '8 or 11 characters' });
+  }
+  if (row.iban) {
+    row.iban = row.iban.replace(/\s/g, '').toUpperCase();
+    if (!/^[A-Z]{2}\d{2}[A-Z0-9]{8,30}$/.test(row.iban)) throw new HttpError(400, 'IBAN looks wrong (country code, 2 digits, then the account)', { iban: 'check the IBAN' });
+  }
+  return row;
 }
 
 function cleanBill(body, opts) {

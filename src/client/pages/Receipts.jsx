@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { api, useApi, dateTime, money, decimal, shortDate } from '../lib.js';
-import { PageHead, Empty, Loading, useToast } from '../ui.jsx';
+import { api, upload, useApi, dateTime, money, decimal, shortDate } from '../lib.js';
+import { PageHead, Empty, Loading, useToast, ConfirmButton, UploadButton } from '../ui.jsx';
 import { BillModal, ReceiptPreview } from './Bills.jsx';
 
 // Scan the receipts folder, extract what we can, and pre-fill a bill form. Saving is always
@@ -13,6 +13,31 @@ export default function Receipts({ meta }) {
   const [result, setResult] = useState(null);
   const [busy, setBusy] = useState(false);
   const [form, setForm] = useState(null);
+  const [uploading, setUploading] = useState(false);
+
+  const add = async (file) => {
+    setUploading(true);
+    try {
+      const out = await upload('/receipts/upload', file);
+      toast(`Uploaded ${out.file}`);
+      reload();
+      extract(out.file);
+    } catch (err) {
+      toast(err.message, 'bad');
+    } finally {
+      setUploading(false);
+    }
+  };
+  const remove = async (path) => {
+    try {
+      await api(`/receipts?path=${encodeURIComponent(path)}`, { method: 'DELETE' });
+      toast('Receipt deleted');
+      if (selected === path) { setSelected(null); setResult(null); }
+      reload();
+    } catch (err) {
+      toast(err.message, 'bad');
+    }
+  };
 
   const extract = async (path, ai = false) => {
     setSelected(path);
@@ -49,20 +74,28 @@ export default function Receipts({ meta }) {
   return (
     <>
       <PageHead title="Receipts import" lead={`Files in the receipts folder. Text PDFs are read locally; scans need Claude extraction${meta.receipts_ai ? ' (enabled)' : ' (disabled: set RECEIPTS_AI=true and ANTHROPIC_API_KEY in .env)'}.`}>
-        <button type="button" className="btn btn-ghost btn-sm" onClick={reload}>Rescan folder</button>
+        <button type="button" className="btn btn-ghost" onClick={reload}>Rescan folder</button>
+        <UploadButton label="+ Upload receipt" busy={uploading} onFile={add} />
       </PageHead>
       <div className="split">
         <div className="stack">
-          {!files ? <Loading /> : files.length === 0 ? <div className="panel"><Empty>The receipts folder is empty.</Empty></div> : (
+          {!files ? <Loading /> : files.length === 0 ? <div className="panel"><Empty>No receipts yet. Use “Upload receipt”.</Empty></div> : (
             <div className="table-wrap">
               <table className="t">
-                <thead><tr><th>File</th><th>Added</th><th>Linked</th><th /></tr></thead>
+                <thead><tr><th>File</th><th>Added</th><th className="num">Size</th><th>Linked</th><th /></tr></thead>
                 <tbody>{files.map((f) => (
                   <tr key={f.path} className={`clickable ${selected === f.path ? 'row-ok' : ''}`} onClick={() => extract(f.path)}>
                     <td className="mono" style={{ overflowWrap: 'anywhere' }}>{f.path}</td>
                     <td className="muted">{dateTime(f.modified)}</td>
+                    <td className="num muted">{Math.max(1, Math.round(f.size / 1024))} KB</td>
                     <td className="muted">{f.linked_to || '—'}</td>
-                    <td className="actions"><button type="button" className="btn btn-ghost btn-sm">Read</button></td>
+                    <td className="actions" onClick={(e) => e.stopPropagation()}>
+                      <button type="button" className="btn btn-ghost btn-sm" onClick={() => extract(f.path)}>Read</button>
+                      {' '}<a className="btn btn-ghost btn-sm" href={`/api/receipts/file?path=${encodeURIComponent(f.path)}&download=1`}>Download</a>
+                      {' '}{f.linked_to
+                        ? <button type="button" className="btn btn-ghost btn-sm" disabled title={`linked to ${f.linked_to}: remove it there first`}>Delete</button>
+                        : <ConfirmButton className="btn btn-danger btn-sm" confirm={`Delete ${f.path}?`} onConfirm={() => remove(f.path)}>Delete</ConfirmButton>}
+                    </td>
                   </tr>
                 ))}</tbody>
               </table>

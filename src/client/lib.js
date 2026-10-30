@@ -61,6 +61,26 @@ export async function api(path, { method = 'GET', body, raw = false } = {}) {
   return data;
 }
 
+// Sends a file as the raw request body (uploads). `path` may carry its own query string.
+export async function upload(path, file) {
+  const sep = path.includes('?') ? '&' : '?';
+  let res;
+  try {
+    res = await fetch(`/api${path}${sep}name=${encodeURIComponent(file.name)}`, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/octet-stream', 'X-CSRF-Token': csrf },
+      body: file,
+    });
+  } catch {
+    throw new Error('Network error or access gate expired: reload the page.');
+  }
+  if (res.status === 413) throw new Error('File too large (max 2 MB).');
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  return data;
+}
+
 // Loads a GET endpoint; returns [data, reload, error].
 export function useApi(path) {
   const [state, setState] = useState({ data: null, error: null });

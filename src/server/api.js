@@ -1,6 +1,7 @@
 // JSON API. Every route except login/session/healthz needs a session; every non-GET route
 // also needs the CSRF header (enforced in server.js from route.opts).
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const config = require('./config');
 const db = require('./db');
@@ -145,6 +146,24 @@ r.get('/api/receipts/file', ({ res, query }) => {
   files.serveFile(res, files.resolveInside(config.receiptsDir, query.get('path')), { download: query.get('download') === '1' });
 });
 r.post('/api/receipts/extract', ({ body }) => receipts.extract(String(body.path || ''), { useAi: !!body.ai }));
+// Upload: raw file bytes, name in ?name=. ?analyse=1 also reads it (bill pre-fill).
+r.post('/api/receipts/upload', async ({ body, query }) => {
+  const file = receipts.save(query.get('name'), body);
+  return query.get('analyse') === '1' ? receipts.extract(file) : { file };
+}, { raw: receipts.MAX_UPLOAD });
+r.del('/api/receipts', ({ query }) => { receipts.remove(String(query.get('path') || '')); return { ok: true }; });
+// Reads an invoice I issued (e.g. made elsewhere) to pre-fill a new one; the file is not kept.
+r.post('/api/invoices/analyse', async ({ body, query }) => {
+  const ext = path.extname(String(query.get('name') || '')).toLowerCase();
+  if (!['.pdf', '.png', '.jpg', '.jpeg', '.webp'].includes(ext)) throw new HttpError(400, 'only PDF, PNG, JPG or WEBP files');
+  const tmp = path.join(os.tmpdir(), `fintrack-analyse-${process.pid}-${Date.now()}${ext}`);
+  fs.writeFileSync(tmp, body);
+  try {
+    return await receipts.analyseInvoice(tmp, { useAi: query.get('ai') === '1' });
+  } finally {
+    fs.rmSync(tmp, { force: true });
+  }
+}, { raw: receipts.MAX_UPLOAD });
 
 // ------------------------------------------------------------------ issuer profiles
 r.get('/api/issuers', () => db.all('SELECT * FROM issuer_profiles ORDER BY is_default DESC, legal_name'));

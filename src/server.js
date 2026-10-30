@@ -15,7 +15,7 @@ const config = require('./server/config');
 const db = require('./server/db');
 const auth = require('./server/auth');
 const api = require('./server/api');
-const { sendJson, readJson, HttpError } = require('./server/http');
+const { sendJson, readJson, readBody, HttpError } = require('./server/http');
 
 const ROOT = config.distDir;
 const INDEX = path.join(ROOT, 'index.html');
@@ -89,7 +89,8 @@ async function handleApi(req, res, url) {
   if (found.methodNotAllowed) throw new HttpError(405, 'method not allowed');
   const { route, params } = found;
   const session = route.opts.public ? null : auth.requireSession(req, { csrf: req.method !== 'GET' });
-  const body = req.method === 'GET' ? {} : await readJson(req);
+  // raw routes get the request bytes (file uploads), everything else JSON
+  const body = req.method === 'GET' ? {} : route.opts.raw ? await readBody(req, route.opts.raw) : await readJson(req);
   const out = await route.handler({ req, res, params, query: url.searchParams, body, session });
   if (!res.headersSent && out !== undefined) sendJson(res, 200, out);
 }
