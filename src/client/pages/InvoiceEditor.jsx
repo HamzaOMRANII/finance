@@ -5,9 +5,8 @@ import { LineItemsEditor, TaxLinesEditor, Totals, itemsToEdit, taxesToEdit } fro
 import { CURRENCIES } from '../../shared/money.mjs';
 
 const EDITABLE = ['draft', 'pending_approval', 'approved'];
-// Browser PDF viewer: no toolbar or page-thumbnail sidebar, page fitted to the frame width
-// (download buttons are on the page itself).
-const PDF_VIEW = '#toolbar=0&navpanes=0&view=FitH';
+// Browser PDF viewer: toolbar kept (print, download…), page-thumbnail sidebar closed, page fitted to the width.
+const PDF_VIEW = '#navpanes=0&view=FitH';
 
 export default function InvoiceEditor({ id, query }) {
   if (id === 'new') return <Editor invoice={null} clientId={query.get('client')} />;

@@ -272,7 +272,7 @@ export function BillModal({ bill, cards, onClose, onSaved, onPay, prefill, title
 export function ReceiptPreview({ path }) {
   const url = `/api/receipts/file?path=${encodeURIComponent(path)}`;
   return /\.pdf$/i.test(path)
-    ? <iframe className="receipt-frame" src={`${url}#toolbar=0&navpanes=0&view=FitH`} title={`Receipt ${path}`} />
+    ? <iframe className="receipt-frame" src={`${url}#navpanes=0&view=FitH`} title={`Receipt ${path}`} />
     : <img className="receipt-img" src={url} alt={`Receipt ${path}`} />;
 }
 
